@@ -6,7 +6,7 @@
 #   q           -> quit
 import serial
 
-PORT = "/dev/cu.usbmodem1101"
+PORT = "/dev/ttyACM0"
 BAUD = 115200
 
 ser = serial.Serial(PORT, BAUD, timeout=1)
