@@ -11,16 +11,16 @@ Status legend:
 
 | Item | Qty | Status | Notes |
 |------|-----|--------|-------|
-| GoBilda 5203 Yellow Jacket motor, front-left | 1 | 🟡 | present, not tested. [Product page](https://www.gobilda.com/5203-series-yellow-jacket-planetary-gear-motor-19-2-1-ratio-24mm-length-8mm-rex-shaft-312-rpm-3-3-5v-encoder/) |
-| GoBilda 5203 Yellow Jacket motor, front-right | 1 | 🟡 | present, not tested. [Product page](https://www.gobilda.com/5203-series-yellow-jacket-planetary-gear-motor-19-2-1-ratio-24mm-length-8mm-rex-shaft-312-rpm-3-3-5v-encoder/) |
-| GoBilda 5203 Yellow Jacket motor, back-left | 1 | 🟡 | present, not tested. [Product page](https://www.gobilda.com/5203-series-yellow-jacket-planetary-gear-motor-19-2-1-ratio-24mm-length-8mm-rex-shaft-312-rpm-3-3-5v-encoder/) |
-| GoBilda 5203 Yellow Jacket motor, back-right | 1 | 🟡 | present, not tested. [Product page](https://www.gobilda.com/5203-series-yellow-jacket-planetary-gear-motor-19-2-1-ratio-24mm-length-8mm-rex-shaft-312-rpm-3-3-5v-encoder/) |
+| GoBilda 5203 Yellow Jacket motor, front-left | 1 | ✅ | spins under Pico+shifter+mixer (blocks, 2026-09-15). [Product page](https://www.gobilda.com/5203-series-yellow-jacket-planetary-gear-motor-19-2-1-ratio-24mm-length-8mm-rex-shaft-312-rpm-3-3-5v-encoder/) |
+| GoBilda 5203 Yellow Jacket motor, front-right | 1 | ✅ | spins under Pico+shifter+mixer (blocks, 2026-09-15). [Product page](https://www.gobilda.com/5203-series-yellow-jacket-planetary-gear-motor-19-2-1-ratio-24mm-length-8mm-rex-shaft-312-rpm-3-3-5v-encoder/) |
+| GoBilda 5203 Yellow Jacket motor, back-left | 1 | ✅ | spins under Pico+shifter+mixer (blocks, 2026-09-15). [Product page](https://www.gobilda.com/5203-series-yellow-jacket-planetary-gear-motor-19-2-1-ratio-24mm-length-8mm-rex-shaft-312-rpm-3-3-5v-encoder/) |
+| GoBilda 5203 Yellow Jacket motor, back-right | 1 | ✅ | spins under Pico+shifter+mixer (blocks, 2026-09-15). [Product page](https://www.gobilda.com/5203-series-yellow-jacket-planetary-gear-motor-19-2-1-ratio-24mm-length-8mm-rex-shaft-312-rpm-3-3-5v-encoder/) |
 | Mecanum wheels | 4 | 🟡 | working, visually verified. [Product page](https://www.gobilda.com/140mm-mecanum-wheel-set-70a-durometer-bearing-supported-rollers/) |
 | Gear ratio: 19.2:1, 312 RPM (per product link) | — | 🟡 | verify stamped ratio matches on all 4 |
-| GoBilda 1x15A motor controller (9–14V input) | 3 | 🟡 | 1 lights up under power — other 2 LED state unknown. [Product page](https://www.gobilda.com/1x15a-motor-controller-9-14v-input/) |
-| GoBilda 1x20A motor controller (9–30V input) | 1 | 🟡 | LED state unknown. [Product page](https://www.gobilda.com/1x20a-motor-controller/) |
-| GoBilda Mecanum Mixer | 1 | 🟡 | present, not tested. [Product page](https://www.gobilda.com/mecanum-mixer/). Takes drive+rotate+strafe (3ch, 50Hz servo PWM) from ESP32, outputs 4ch to controllers. Photo: `photos/mecanum_mixer_and_power_dist.jpg` |
-| Raspberry Pi Pico | ? | ⚠️ | superseded — Orin code says ESP32 took over motor control. Confirm Pico gone from robot |
+| GoBilda 1x15A motor controller (9–14V input) | 3 | ✅ | wheels spun 2026-09-15 via Pico+shifter+mixer chain. [Product page](https://www.gobilda.com/1x15a-motor-controller-9-14v-input/) |
+| GoBilda 1x20A motor controller (9–30V input) | 1 | ✅ | wheels spun 2026-09-15 via Pico+shifter+mixer chain. [Product page](https://www.gobilda.com/1x20a-motor-controller/) |
+| GoBilda Mecanum Mixer | 1 | ✅ | verified 2026-09-15: Pico → level shifter → mixer → wheels spin properly (blocks). [Product page](https://www.gobilda.com/mecanum-mixer/). Takes drive+rotate+strafe (3ch, 50Hz servo PWM), outputs 4ch to controllers. Photo: `photos/mecanum_mixer_and_power_dist.jpg` |
+| Raspberry Pi Pico | 1 | ✅ | **on robot, driving chain** (2026-09-15). MicroPython `main.py`: 3ch 50Hz PWM GP21/20/19 → shifter → mixer. Serial USB `/dev/ttyACM0` on Orin |
 
 Note: 4 motors, 3x15A + 1x20A — odd mix. Was 20A a replacement? Which wheel? Check.
 
@@ -79,7 +79,7 @@ Note: 4 motors, 3x15A + 1x20A — odd mix. Was 20A a replacement? Which wheel? C
 |------|-----|--------|-------|
 | NVIDIA Jetson Orin Nano | 1 | ✅ | boots. Ubuntu 22.04.5, JetPack R36.4.7, ROS2 Humble, ros2_ws builds. `~/.bashrc` sources `/opt/ros/humble/setup.bash` |
 | ESP32 | 0 | ❌ | **MISSING — not on robot** (2026-09-14). Firmware source saved on Orin: `ros2_ws/src/sentinel_drive_control/ESP32_code.txt`. Serial protocol + pins documented — portable to Pico. LED strip (NeoPixel) parts of firmware obsolete: no strip on robot, not coming back |
-| Raspberry Pi Pico | ? | ⚠️ | plan: port ESP32 firmware to Pico (Arduino-Pico core) — 3ch 50Hz PWM → mixer, serial over USB, NO LED code. Physical Pico availability unconfirmed |
+| Raspberry Pi Pico | 1 | ✅ | **on robot, driving chain** (2026-09-15). MicroPython `main.py`: 3ch 50Hz PWM GP21/20/19 → shifter → mixer. Serial USB `/dev/ttyACM0` on Orin |
 
 ### Connect to Orin (Mac over USB ethernet)
 
@@ -102,4 +102,4 @@ See `orin_connection.md` (project root). Contains IP + password.
 | Item | Qty | Status | Notes |
 |------|-----|--------|-------|
 | 4-pin JST XH connectors + wires | 4 | 🟡 | for motor encoder ports. Fit not yet confirmed — plug into encoder port to verify |
-| YF08E level shifter (TXS0108E-style, 8ch) | 1 | 🟡 | breadboarded for Pico(3.3V)→mixer(5V) signal. Output not yet scope-verified |
+| YF08E level shifter (TXS0108E-style, 8ch) | 1 | ✅ | breadboarded Pico(3.3V)→mixer(5V) signal. Verified through mixer to wheels 2026-09-15 |
