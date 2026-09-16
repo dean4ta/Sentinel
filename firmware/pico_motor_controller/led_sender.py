@@ -2,7 +2,7 @@
 # Usage: .venv/bin/python led_sender.py
 #
 #   NN          -> LED on-time = NN * 10 ms
-#   xNN / yNN / rNN -> GP21/GP20/GP19 pulse = 1000 + NN*10 us
+#   x/y/r + 0-255 -> GP21/GP20/GP19 pulse = 1000 + value * 1000/255 us
 #   q           -> quit
 import serial
 
@@ -13,7 +13,7 @@ ser = serial.Serial(PORT, BAUD, timeout=1)
 
 print(f"Connected to {PORT}.")
 print("LED: 2 digits (e.g. 15 = 150ms on).")
-print("PWM: x/y/r + 2 digits (00=1000us, 50=1500us, 99=1990us).")
+print("PWM: x/y/r + value 0-255 (0=1000us, 128=~1500us, 255=2000us).")
 print("q to quit.")
 
 while True:
@@ -22,9 +22,12 @@ while True:
         break
 
     ok_led = len(v) == 2 and v.isdigit()
-    ok_pwm = len(v) == 3 and v[0] in "xyr" and v[1:].isdigit()
+    ok_pwm = (
+        len(v) >= 2 and v[0] in "xyr"
+        and v[1:].isdigit() and int(v[1:]) <= 255
+    )
 
     if ok_led or ok_pwm:
         ser.write((v + "\n").encode())
     else:
-        print("Need 2 digits (LED) or x/y/r + 2 digits (PWM), e.g. 15 or r99")
+        print("Need 2 digits (LED) or x/y/r + 0-255 (PWM), e.g. 15 or r255")
