@@ -30,9 +30,10 @@ mpremote connect /dev/ttyACM0 run pico_led_serial.py
 
 ## Interactive test
 
-Terminal 2, after `main.py` is running:
+Terminal 2, after `main.py` is running on the Pico:
 
 ```bash
+# no virtualenv needed this step
 python3 led_sender.py
 ```
 
