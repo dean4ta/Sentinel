@@ -2,3 +2,5 @@
 *.heic
 *.HEIC
 orin_connection.md
+
+.venv
