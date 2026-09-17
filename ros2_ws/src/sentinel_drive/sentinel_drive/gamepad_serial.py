@@ -27,7 +27,7 @@ class GamepadSerial(Node):
         self.declare_parameter('serial_port', '/dev/ttyACM0')
         self.declare_parameter('baud', 460800)
         self.declare_parameter('deadzone', 0.05)
-        self.declare_parameter('invert_strafe', True)
+        self.declare_parameter('invert_strafe', False)
         self.declare_parameter('rotate_limit', 0.5)
         self.declare_parameter('publish_rate', 20.0)
 
@@ -74,13 +74,20 @@ class GamepadSerial(Node):
             strafe = -strafe
         rotate = max(-self.rotate_limit, min(self.rotate_limit, rotate))
 
-        self.latest = (drive, rotate, strafe)
+        self.latest = (drive, strafe, rotate)
         self.any_input = True
 
     def send_latest(self):
-        drive, rotate, strafe = self.latest
+        drive, strafe, rotate = self.latest
+        # Sentinel 1 wiring (observed 2026-09-17): 'x' signal drives robot
+        # strafe (Y = -x), 'r' drives forward/back (X = -r), 'y' drives
+        # rotation (R = -y). Remap so sticks behave per header: LS F -> +X,
+        # LS R -> -Y, RS R -> -R.
+        x_sig = strafe
+        r_sig = -drive
+        y_sig = rotate
         try:
-            self.ser.write(f'{drive:.3f},{rotate:.3f},{strafe:.3f}\n'.encode())
+            self.ser.write(f'{x_sig:.3f},{r_sig:.3f},{y_sig:.3f}\n'.encode())
         except serial.SerialException as e:
             self.get_logger().error(f'Serial write failed: {e}', throttle_duration_sec=2.0)
 
