@@ -81,10 +81,10 @@ class GamepadSerial(Node):
         drive, strafe, rotate = self.latest
         # Sentinel 1 wiring (observed 2026-09-17): 'x' signal drives robot
         # strafe (Y = -x), 'r' drives forward/back (X = -r), 'y' drives
-        # rotation (R = -y). Remap so sticks behave per header: LS F -> +X,
-        # LS R -> -Y, RS R -> -R.
-        x_sig = strafe
-        r_sig = -drive
+        # rotation (R = -y). Remap + flip so sticks behave per header:
+        # LS F -> +X, LS R -> +Y, RS R -> -R.
+        x_sig = -strafe
+        r_sig = drive
         y_sig = rotate
         try:
             self.ser.write(f'{x_sig:.3f},{r_sig:.3f},{y_sig:.3f}\n'.encode())
