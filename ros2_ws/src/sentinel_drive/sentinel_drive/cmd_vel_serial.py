@@ -62,10 +62,11 @@ def main(args=None):
     try:
         node = CmdVelSerial()
         rclpy.spin(node)
-    except SystemExit:
+    except (SystemExit, KeyboardInterrupt):
         pass
     finally:
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

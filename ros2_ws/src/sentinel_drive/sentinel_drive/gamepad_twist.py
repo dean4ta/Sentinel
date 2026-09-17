@@ -73,8 +73,11 @@ def main(args=None):
     rclpy.init(args=args)
     try:
         rclpy.spin(GamepadTwist())
+    except KeyboardInterrupt:
+        pass
     finally:
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
