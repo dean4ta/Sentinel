@@ -14,6 +14,10 @@ Starts `joy_node` (PS4 gamepad, 20Hz autorepeat), `gamepad_twist`, and `cmd_vel_
 
 `config/drive_params.yaml` — all params below live here. Edit + relaunch; no CLI overrides needed.
 
+## Calibration
+
+TODO: PWM signals are not yet calibrated to actual velocity in SI units. `/cmd_vel` values are unitless drive commands in [-1,1]; need measurement of robot speed (m/s, rad/s) per command level and a mapping to true SI values.
+
 ## Nodes
 
 `gamepad_twist`: subscribes `/joy`, maps axes (drive=axes[1], strafe=axes[0], rotate=axes[2]) with deadzone, publishes `geometry_msgs/Twist` on `/cmd_vel` (linear.x=drive, linear.y=strafe, angular.z=rotate).
@@ -27,6 +31,7 @@ Starts `joy_node` (PS4 gamepad, 20Hz autorepeat), `gamepad_twist`, and `cmd_vel_
 | `deadzone` | `0.05` | joystick deadzone, then rescaled |
 | `invert_strafe` | `false` | flips strafe sign |
 | `rotate_limit` | `0.5` | clamps rotation speed |
+| `speed_scale` | `1.0` | scales all speeds, [0,1] |
 
 ## Params — cmd_vel_serial
 
