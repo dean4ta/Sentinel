@@ -11,6 +11,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/gamepad.launch.py']),
+        ('share/' + package_name + '/config', ['config/drive_params.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -20,7 +21,8 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'gamepad_serial = sentinel_drive.gamepad_serial:main',
+            'gamepad_twist = sentinel_drive.gamepad_twist:main',
+            'cmd_vel_serial = sentinel_drive.cmd_vel_serial:main',
         ],
     },
 )
