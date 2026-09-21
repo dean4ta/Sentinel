@@ -271,4 +271,4 @@ while True:
             led_on_phase = True
             phase_start_ms = now
 
-    time.sleep_ms(10)
+    time.sleep_ms(1)
