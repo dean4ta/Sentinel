@@ -71,7 +71,7 @@ Note: 4 motors, 3x15A + 1x20A — odd mix. Was 20A a replacement? Which wheel? C
 | RGBD camera — Intel RealSense D435i | 1 | 🟡 | enumerates on USB (8086:0b3a) ✅, streams untested. Has built-in IMU (BMI055) |
 | Ultrasonic sensor | ? | ❓ | not yet inspected |
 | IMU | 0 | ✅ | **decision 2026-09-14: use D435i built-in IMU, skip standalone IMU order.** Verify rate + mounting |
-| Wheel encoders | 4 | 🟡 | built into 5203 motors; wiring/readout unverified |
+| Wheel encoders | 4 | 🟡 | built into 5203 motors; cables made + fit encoder ports (2026-09-18). Readout unverified — next: wire to Pico |
 
 ## 4. Compute (Jetson Orin, ESP32, Pi Pico)
 
@@ -101,5 +101,5 @@ See `orin_connection.md` (project root). Contains IP + password.
 
 | Item | Qty | Status | Notes |
 |------|-----|--------|-------|
-| 4-pin JST XH connectors + wires | 4 | 🟡 | for motor encoder ports. Fit not yet confirmed — plug into encoder port to verify |
+| 4-pin JST XH connectors + wires | 4 | ✅ | fit encoder ports confirmed (cables made 2026-09-18). Next: interface to Pico, verify readout |
 | YF08E level shifter (TXS0108E-style, 8ch) | 1 | ✅ | breadboarded Pico(3.3V)→mixer(5V) signal. Verified through mixer to wheels 2026-09-15 |
