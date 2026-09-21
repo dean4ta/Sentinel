@@ -1,13 +1,21 @@
 # LED on-time + 3ch mecanum mixer PWM, controlled over USB serial.
+# Also reads 4x quadrature wheel encoders (interrupt-driven) and reports
+# counts over serial at ~10 Hz.
 #
 # Commands (one per line):
 #   NN                     -> LED on-time = NN * 10 ms, off 200 ms, repeat
 #   xNNN / yNNN / rNNN     -> GP21/GP20/GP19 pulse = 1000 + NNN * 1000/255 us
 #                             (0-255, bench test format)
 #   drive,rotate,strafe    -> float triplet (-1..1), production format from
-#                             the Orin gamepad_serial node.
+#                             the Orin cmd_vel_serial node.
 #                             drive -> GP21, rotate -> GP19, strafe -> GP20,
 #                             pulse = 1500 + value * 500 us.
+#
+# Encoder report (printed ~10 Hz, one block of four lines):
+#   FL <count>
+#   FR <count>
+#   BL <count>
+#   BR <count>
 #
 # Failsafe: no valid motor command for 200 ms -> all channels neutral.
 # Only the newest complete line is applied per cycle.
@@ -57,6 +65,87 @@ def neutral_all():
 
 # Start all channels at neutral.
 neutral_all()
+
+# -------------------- Quadrature encoders --------------------
+#
+# goBILDA 5203 (19.2:1) encoders: 537.7 PPR at the output shaft (one PPR
+# = one full A-cycle). 4x decoding counts every transition of A and B,
+# so 4 * 537.7 = ~2150.8 decoded counts per output-shaft revolution.
+#
+# Decode: interrupt-driven, one shared handler scans all 8 pins on every
+# edge. At robot speeds (< ~2 kHz transitions per encoder) this costs
+# ~20-30% CPU worst case. No-load motor speed (~11 kHz per encoder) would
+# drop counts; upgrade path is PIO if that ever matters.
+
+# Set to -1 to flip one encoder's sign without touching wiring.
+FL_ENCODER_DIRECTION = 1
+FR_ENCODER_DIRECTION = 1
+BL_ENCODER_DIRECTION = 1
+BR_ENCODER_DIRECTION = 1
+
+# name, A gpio, B gpio, direction. Pins per spec:
+# FR A/B = GP6/7, BR A/B = GP8/9, FL A/B = GP10/11, BL A/B = GP12/13.
+_ENCODER_DEFS = (
+    ('FL', 10, 11, FL_ENCODER_DIRECTION),
+    ('FR', 6, 7, FR_ENCODER_DIRECTION),
+    ('BL', 12, 13, BL_ENCODER_DIRECTION),
+    ('BR', 8, 9, BR_ENCODER_DIRECTION),
+)
+
+REPORT_MS = 100  # encoder report rate (10 Hz)
+
+_ENC_A_PINS = []
+_ENC_B_PINS = []
+_ENC_DIRS = []
+_ENC_COUNTS = []
+_ENC_A_STATES = []
+_ENC_B_STATES = []
+
+for _name, _a_gp, _b_gp, _dir in _ENCODER_DEFS:
+    _a_pin = Pin(_a_gp, Pin.IN, Pin.PULL_UP)
+    _b_pin = Pin(_b_gp, Pin.IN, Pin.PULL_UP)
+    _ENC_A_PINS.append(_a_pin)
+    _ENC_B_PINS.append(_b_pin)
+    _ENC_DIRS.append(_dir)
+    _ENC_COUNTS.append(0)
+    # Latch the actual A/B state BEFORE arming the IRQ so startup cannot
+    # produce a false count from the encoder's initial state.
+    _ENC_A_STATES.append(_a_pin.value())
+    _ENC_B_STATES.append(_b_pin.value())
+
+
+def _encoder_irq(pin):
+    # 4x decode: +1 when (old_a ^ new_b), else -1, per changed channel.
+    for i in range(4):
+        a = _ENC_A_PINS[i].value()
+        b = _ENC_B_PINS[i].value()
+        if a != _ENC_A_STATES[i]:
+            _ENC_COUNTS[i] += (1 if (_ENC_A_STATES[i] ^ b) else -1) * _ENC_DIRS[i]
+        if b != _ENC_B_STATES[i]:
+            _ENC_COUNTS[i] += (1 if (a ^ _ENC_B_STATES[i]) else -1) * _ENC_DIRS[i]
+        _ENC_A_STATES[i] = a
+        _ENC_B_STATES[i] = b
+
+
+for _pin in _ENC_A_PINS + _ENC_B_PINS:
+    _pin.irq(handler=_encoder_irq,
+             trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING)
+
+
+def print_report():
+    for i, _name in enumerate(('FL', 'FR', 'BL', 'BR')):
+        print(_name, _ENC_COUNTS[i])
+
+
+_last_report_ms = time.ticks_ms()
+
+
+def maybe_report():
+    global _last_report_ms
+    now = time.ticks_ms()
+    if time.ticks_diff(now, _last_report_ms) >= REPORT_MS:
+        print_report()
+        _last_report_ms = now
 
 # -------------------- Command parsing --------------------
 
@@ -144,7 +233,18 @@ while True:
             neutral_all()
             failsafe_on = True
 
+    # LED blink: on on_ms, off 200 ms (behavior unchanged). Reporting
+    # happens inside both phases so the rate stays ~10 Hz even though
+    # the phases use blocking waits. Encoder counting is IRQ-driven and
+    # unaffected by anything in this loop.
     led.on()
-    time.sleep_ms(on_ms)
+    t0 = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), t0) < on_ms:
+        maybe_report()
+        time.sleep_ms(10)
+
     led.off()
-    time.sleep_ms(200)
+    t0 = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), t0) < 200:
+        maybe_report()
+        time.sleep_ms(10)
