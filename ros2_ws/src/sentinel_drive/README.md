@@ -22,7 +22,7 @@ TODO: PWM signals are not yet calibrated to actual velocity in SI units. `/cmd_v
 
 `gamepad_twist`: subscribes `/joy`, maps axes (drive=axes[1], strafe=axes[0], rotate=axes[2]) with deadzone, publishes `geometry_msgs/Twist` on `/cmd_vel` (linear.x=drive, linear.y=strafe, angular.z=rotate).
 
-`cmd_vel_serial`: subscribes `/cmd_vel`, remaps channels + signs for Sentinel 1 wiring, writes `drive,rotate,strafe\n` float triplets to the Pico at a fixed rate. Pico converts to PWM and enforces 200ms failsafe.
+`cmd_vel_serial`: bidirectional serial gateway. Writes `/cmd_vel` as float triplets to the Pico (channel remap + signs for Sentinel 1 wiring). Reads encoder count lines back and publishes `std_msgs/Int32` on `/encoder/FL`, `/encoder/FR`, `/encoder/BL`, `/encoder/BR`. Must be the only process holding the serial port.
 
 ## Params — gamepad_twist
 
