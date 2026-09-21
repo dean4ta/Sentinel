@@ -6,9 +6,9 @@
 # a continuous stream at >5Hz keeps the drive alive.
 #
 # Reads: drains "FL <n>" / "FR <n>" / "BL <n>" / "BR <n>" encoder lines
-# from the Pico and publishes std_msgs/Int32 raw counts on
-# /encoder/FL, /encoder/FR, /encoder/BL, /encoder/BR. This node must be
-# the only process holding the serial port, so it owns both directions.
+# from the Pico and publishes them as sentinel_drive/EncoderCounts on
+# /encoder. This node must be the only process holding the serial port,
+# so it owns both directions.
 #
 # Sentinel 1 wiring (observed 2026-09-17): 'x' signal drives robot strafe
 # (Y = -x), 'r' drives forward/back (X = -r), 'y' drives rotation
@@ -19,7 +19,7 @@ import serial
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Int32
+from sentinel_drive.msg import EncoderCounts
 
 ENCODER_NAMES = ('FL', 'FR', 'BL', 'BR')
 
@@ -45,17 +45,15 @@ class CmdVelSerial(Node):
 
         self.latest = Twist()
         self.rx_buf = b''
-        self.encoder_pubs = {
-            name: self.create_publisher(Int32, f'/encoder/{name}', 10)
-            for name in ENCODER_NAMES
-        }
+        self.counts = {name: 0 for name in ENCODER_NAMES}
+        self.encoder_pub = self.create_publisher(EncoderCounts, '/encoder', 10)
 
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_cb, 10)
         self.create_timer(1.0 / rate, self.tick)
 
         self.get_logger().info(
             f'Gateway on {port} @ {baud}: writing at {rate} Hz, '
-            f'publishing encoders to /encoder/{{FL,FR,BL,BR}}.')
+            f'publishing EncoderCounts on /encoder.')
 
     def cmd_vel_cb(self, msg):
         self.latest = msg
@@ -82,13 +80,22 @@ class CmdVelSerial(Node):
 
         for line in lines[:-1]:
             parts = line.split()
-            if len(parts) != 2 or parts[0] not in self.encoder_pubs:
+            if len(parts) != 2 or parts[0] not in self.counts:
                 continue
             try:
                 value = int(parts[1])
             except ValueError:
                 continue
-            self.encoder_pubs[parts[0]].publish(Int32(data=value))
+            self.counts[parts[0]] = value
+            self.publish_counts()
+
+    def publish_counts(self):
+        msg = EncoderCounts()
+        msg.fl = self.counts['FL']
+        msg.fr = self.counts['FR']
+        msg.bl = self.counts['BL']
+        msg.br = self.counts['BR']
+        self.encoder_pub.publish(msg)
 
     def send_latest(self):
         # Wiring remap + sign compensation, see header comment.
