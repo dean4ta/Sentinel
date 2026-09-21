@@ -69,13 +69,13 @@ neutral_all()
 # -------------------- Quadrature encoders --------------------
 #
 # goBILDA 5203 (19.2:1) encoders: 537.7 PPR at the output shaft (one PPR
-# = one full A-cycle). 4x decoding counts every transition of A and B,
+# = one full A-cycle). 4x decoding counts every valid A/B transition,
 # so 4 * 537.7 = ~2150.8 decoded counts per output-shaft revolution.
 #
-# Decode: interrupt-driven, one shared handler scans all 8 pins on every
-# edge. At robot speeds (< ~2 kHz transitions per encoder) this costs
-# ~20-30% CPU worst case. No-load motor speed (~11 kHz per encoder) would
-# drop counts; upgrade path is PIO if that ever matters.
+# Decode: interrupt-driven, 2-bit state table (state = (A<<1)|B). Each
+# encoder has its own IRQ handler closure: an edge on FR pins decodes FR
+# only, never the other three. Handlers are a few instructions; if counts
+# ever drop at very high motor RPM the upgrade path is PIO.
 
 # Set to -1 to flip one encoder's sign without touching wiring.
 FL_ENCODER_DIRECTION = 1
@@ -94,12 +94,22 @@ _ENCODER_DEFS = (
 
 REPORT_MS = 100  # encoder report rate (10 Hz)
 
+# 4x decode table: delta for previous 2-bit state -> current 2-bit state.
+# Rows = previous state, columns = current state (both = (A<<1)|B).
+# Valid single-step transitions give +1/-1; impossible double-step
+# transitions (00<->11, 01<->10) give 0.
+_TRANSITION = (
+    (0, -1, 1, 0),    # from 00
+    (1, 0, 0, -1),    # from 01
+    (-1, 0, 0, 1),    # from 10
+    (0, 1, -1, 0),    # from 11
+)
+
 _ENC_A_PINS = []
 _ENC_B_PINS = []
 _ENC_DIRS = []
 _ENC_COUNTS = []
-_ENC_A_STATES = []
-_ENC_B_STATES = []
+_ENC_STATES = []  # 2-bit state (A<<1)|B, latched before IRQs arm
 
 for _name, _a_gp, _b_gp, _dir in _ENCODER_DEFS:
     _a_pin = Pin(_a_gp, Pin.IN, Pin.PULL_UP)
@@ -110,26 +120,32 @@ for _name, _a_gp, _b_gp, _dir in _ENCODER_DEFS:
     _ENC_COUNTS.append(0)
     # Latch the actual A/B state BEFORE arming the IRQ so startup cannot
     # produce a false count from the encoder's initial state.
-    _ENC_A_STATES.append(_a_pin.value())
-    _ENC_B_STATES.append(_b_pin.value())
+    _ENC_STATES.append((_a_pin.value() << 1) | _b_pin.value())
 
 
-def _encoder_irq(pin):
-    # 4x decode: +1 when (old_a ^ new_b), else -1, per changed channel.
-    for i in range(4):
-        a = _ENC_A_PINS[i].value()
-        b = _ENC_B_PINS[i].value()
-        if a != _ENC_A_STATES[i]:
-            _ENC_COUNTS[i] += (1 if (_ENC_A_STATES[i] ^ b) else -1) * _ENC_DIRS[i]
-        if b != _ENC_B_STATES[i]:
-            _ENC_COUNTS[i] += (1 if (a ^ _ENC_B_STATES[i]) else -1) * _ENC_DIRS[i]
-        _ENC_A_STATES[i] = a
-        _ENC_B_STATES[i] = b
+def _decode(i):
+    # Decode only encoder i: read its two pins, table-lookup the delta.
+    cur = (_ENC_A_PINS[i].value() << 1) | _ENC_B_PINS[i].value()
+    delta = _TRANSITION[_ENC_STATES[i]][cur]
+    if delta:
+        _ENC_COUNTS[i] += delta * _ENC_DIRS[i]
+    _ENC_STATES[i] = cur
 
 
-for _pin in _ENC_A_PINS + _ENC_B_PINS:
-    _pin.irq(handler=_encoder_irq,
-             trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING)
+def _make_irq_handler(i):
+    # One handler per encoder: an edge on either of its pins decodes
+    # that encoder only. Stationary encoders are never touched.
+    def handler(pin):
+        _decode(i)
+    return handler
+
+
+for _i in range(4):
+    _handler = _make_irq_handler(_i)
+    _ENC_A_PINS[_i].irq(handler=_handler,
+                        trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING)
+    _ENC_B_PINS[_i].irq(handler=_handler,
+                        trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING)
 
 
 def print_report():
@@ -223,28 +239,36 @@ def read_serial_newest_only():
         newest_line = ''
 
 # -------------------- Main loop --------------------
+#
+# Non-blocking: LED on/off phases are timestamp-based (visible behavior
+# unchanged: on for on_ms, off for 200 ms). Encoder counting is
+# IRQ-driven and unaffected by this loop.
+
+led.on()
+led_on_phase = True
+phase_start_ms = time.ticks_ms()
 
 while True:
+    now = time.ticks_ms()
+
     read_serial_newest_only()
 
-    now = time.ticks_ms()
     if time.ticks_diff(now, last_motor_ms) > FAILSAFE_MS:
         if not failsafe_on:
             neutral_all()
             failsafe_on = True
 
-    # LED blink: on on_ms, off 200 ms (behavior unchanged). Reporting
-    # happens inside both phases so the rate stays ~10 Hz even though
-    # the phases use blocking waits. Encoder counting is IRQ-driven and
-    # unaffected by anything in this loop.
-    led.on()
-    t0 = time.ticks_ms()
-    while time.ticks_diff(time.ticks_ms(), t0) < on_ms:
-        maybe_report()
-        time.sleep_ms(10)
+    maybe_report()
 
-    led.off()
-    t0 = time.ticks_ms()
-    while time.ticks_diff(time.ticks_ms(), t0) < 200:
-        maybe_report()
-        time.sleep_ms(10)
+    if led_on_phase:
+        if time.ticks_diff(now, phase_start_ms) >= on_ms:
+            led.off()
+            led_on_phase = False
+            phase_start_ms = now
+    else:
+        if time.ticks_diff(now, phase_start_ms) >= 200:
+            led.on()
+            led_on_phase = True
+            phase_start_ms = now
+
+    time.sleep_ms(10)

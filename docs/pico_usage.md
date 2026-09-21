@@ -5,10 +5,8 @@ Pico runs MicroPython. Program deploys as `main.py` — runs automatically on bo
 ## From Orin
 
 ```bash
-# First time - create virtual env if one doesn't already exist
-python -m venv .venv
-
 cd ~/dean/Sentinel/firmware/pico_motor_controller
+python -m venv .venv  # First time - create virtual env if one doesn't already exist
 source .venv/bin/activate
 
 # find device — Pico is ttyACM*
