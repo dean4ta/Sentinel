@@ -19,7 +19,7 @@ import serial
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-from sentinel_drive.msg import EncoderCounts
+from sentinel_msgs.msg import EncoderCounts
 
 ENCODER_NAMES = ('FL', 'FR', 'BL', 'BR')
 
