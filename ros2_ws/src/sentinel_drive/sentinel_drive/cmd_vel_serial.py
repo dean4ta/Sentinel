@@ -79,7 +79,7 @@ class CmdVelSerial(Node):
         self.rx_buf = lines[-1]  # keep the partial tail for next tick
 
         for line in lines[:-1]:
-            parts = line.split()
+            parts = line.decode().split()
             if len(parts) != 2 or parts[0] not in self.counts:
                 continue
             try:
