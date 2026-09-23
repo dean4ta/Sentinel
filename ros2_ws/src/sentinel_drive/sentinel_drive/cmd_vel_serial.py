@@ -78,6 +78,7 @@ class CmdVelSerial(Node):
         lines = self.rx_buf.split(b'\n')
         self.rx_buf = lines[-1]  # keep the partial tail for next tick
 
+        updated = False
         for line in lines[:-1]:
             parts = line.decode().split()
             if len(parts) != 2 or parts[0] not in self.counts:
@@ -87,6 +88,8 @@ class CmdVelSerial(Node):
             except ValueError:
                 continue
             self.counts[parts[0]] = value
+            updated = True
+        if updated:
             self.publish_counts()
 
     def publish_counts(self):
