@@ -1,2 +1,1 @@
- - [] make a udev rule for the pico
- 
+ - [x] ~~make a udev rule for the pico~~ done - see pico_usage.md
