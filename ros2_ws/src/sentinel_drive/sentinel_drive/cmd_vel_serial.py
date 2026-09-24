@@ -46,7 +46,7 @@ class CmdVelSerial(Node):
 
         self.declare_parameter('serial_port', '/dev/ttyACM0')
         self.declare_parameter('baud', 460800)
-        self.declare_parameter('publish_rate', 20.0)
+        self.declare_parameter('publish_rate', 50.0)
 
         port = self.get_parameter('serial_port').value
         baud = self.get_parameter('baud').value
@@ -75,7 +75,7 @@ class CmdVelSerial(Node):
 
     def tick(self):
         # One timer drives both directions: drain whatever the Pico sent
-        # (>= its 10 Hz report rate), then write the latest /cmd_vel.
+        # (>= its 50 Hz report rate), then write the latest /cmd_vel.
         self.drain_encoders()
         self.send_latest()
 

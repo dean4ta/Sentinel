@@ -9,4 +9,4 @@ cmd_vel_serial:
   ros__parameters:
     serial_port: /dev/ttyACM0
     baud: 460800
-    publish_rate: 20.0
+    publish_rate: 50.0

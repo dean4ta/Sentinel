@@ -1,6 +1,6 @@
 # LED on-time + 3ch mecanum mixer PWM, controlled over USB serial.
 # Also reads 4x quadrature wheel encoders (interrupt-driven) and reports
-# counts over serial at ~10 Hz.
+# counts over serial at ~50 Hz.
 #
 # Commands (one per line):
 #   NN                     -> LED on-time = NN * 10 ms, off 200 ms, repeat
@@ -13,7 +13,7 @@
 #                             pulse = 1500 + value * 400 us
 #                             (1100-1900 us, GoBilda 1x20A controller spec).
 #
-# Encoder report (printed ~10 Hz, one block of four lines):
+# Encoder report (printed ~50 Hz, one block of four lines):
 #   FL <count>
 #   FR <count>
 #   BL <count>
@@ -95,7 +95,7 @@ _ENCODER_DEFS = (
     ('BR', 8, 9, BR_ENCODER_DIRECTION),
 )
 
-REPORT_MS = 100  # encoder report rate (10 Hz)
+REPORT_MS = 20  # encoder report rate (50 Hz)
 
 # 4x decode table: delta for previous 2-bit state -> current 2-bit state.
 # Rows = previous state, columns = current state (both = (A<<1)|B).
