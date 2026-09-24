@@ -23,6 +23,21 @@ from sentinel_msgs.msg import EncoderCounts
 
 ENCODER_NAMES = ('FL', 'FR', 'BL', 'BR')
 
+# /cmd_vel carries SI units (m/s, rad/s); these ceiling constants normalize
+# to the [-1, 1] wire protocol. Both are first-pass estimates pending
+# real-robot calibration, not trusted exact values.
+V_MAX_LINEAR_MPS = 2.29   # TODO: measure. Theoretical no-load max at 12 V:
+                          # 5203 19.2:1 motor (312 RPM output) x 140 mm
+                          # mecanum wheel circumference. Loaded max lower.
+V_MAX_ANGULAR_RADPS = 5.0  # TODO: measure. Placeholder pending a timed
+                           # full-speed spin test (rad/s at commanded max
+                           # rotate) — no clean formula; mixing happens in
+                           # the hardware mecanum mixer board, not here.
+
+
+def _clamp(v):
+    return max(-1.0, min(1.0, v))
+
 
 class CmdVelSerial(Node):
 
@@ -102,9 +117,11 @@ class CmdVelSerial(Node):
 
     def send_latest(self):
         # Wiring remap + sign compensation, see header comment.
-        x_sig = -self.latest.linear.y
-        r_sig = self.latest.linear.x
-        y_sig = self.latest.angular.z
+        # Normalize SI velocities against the ceiling constants before
+        # writing the [-1, 1] wire protocol.
+        x_sig = _clamp(-self.latest.linear.y / V_MAX_LINEAR_MPS)
+        r_sig = _clamp(self.latest.linear.x / V_MAX_LINEAR_MPS)
+        y_sig = _clamp(self.latest.angular.z / V_MAX_ANGULAR_RADPS)
         try:
             self.ser.write(
                 f'{x_sig:.3f},{r_sig:.3f},{y_sig:.3f}\n'.encode())

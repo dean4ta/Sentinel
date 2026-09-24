@@ -20,7 +20,7 @@ TODO: PWM signals are not yet calibrated to actual velocity in SI units. `/cmd_v
 
 ## Nodes
 
-`gamepad_twist`: subscribes `/joy`, maps axes (drive=axes[1], strafe=axes[0], rotate=axes[2]) with deadzone, publishes `geometry_msgs/Twist` on `/cmd_vel` (linear.x=drive, linear.y=strafe, angular.z=rotate).
+`gamepad_twist`: subscribes `/joy`, maps axes (drive=axes[1], strafe=axes[0], rotate=axes[2]) with deadzone, publishes `geometry_msgs/Twist` on `/cmd_vel` in SI units (linear.x=drive m/s, linear.y=strafe m/s, angular.z=rotate rad/s), scaled by the same V_MAX ceilings `cmd_vel_serial` normalizes against.
 
 `cmd_vel_serial`: bidirectional serial gateway. Writes `/cmd_vel` as float triplets to the Pico (channel remap + signs for Sentinel 1 wiring). Reads encoder count lines back and publishes `sentinel_msgs/EncoderCounts` (fl, fr, bl, br ints) on `/encoder`. Must be the only process holding the serial port.
 
@@ -30,7 +30,7 @@ TODO: PWM signals are not yet calibrated to actual velocity in SI units. `/cmd_v
 |---|---|---|
 | `deadzone` | `0.05` | joystick deadzone, then rescaled |
 | `invert_strafe` | `false` | flips strafe sign |
-| `rotate_limit` | `0.5` | clamps rotation speed |
+| `rotate_limit` | `2.5` | clamps rotation, rad/s |
 | `speed_scale` | `1.0` | scales all speeds, [0,1] |
 
 ## Params — cmd_vel_serial

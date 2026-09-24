@@ -5,14 +5,18 @@
 #   axes[0] = strafe  (left stick X, right positive)
 #   axes[2] = rotate  (right stick X, right positive)
 #
-# Published Twist: linear.x = drive, linear.y = strafe,
-# angular.z = rotate. Channel/sign compensation for Sentinel 1 wiring
-# lives in cmd_vel_serial, not here.
+# Published Twist (SI units): linear.x = drive (m/s), linear.y = strafe
+# (m/s), angular.z = rotate (rad/s), scaled by the V_MAX ceiling constants
+# shared with cmd_vel_serial. Channel/sign compensation for Sentinel 1
+# wiring lives in cmd_vel_serial, not here.
 
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Joy
+
+from sentinel_drive.cmd_vel_serial import (
+    V_MAX_ANGULAR_RADPS, V_MAX_LINEAR_MPS)
 
 
 class GamepadTwist(Node):
@@ -22,7 +26,7 @@ class GamepadTwist(Node):
 
         self.declare_parameter('deadzone', 0.05)
         self.declare_parameter('invert_strafe', False)
-        self.declare_parameter('rotate_limit', 0.5)
+        self.declare_parameter('rotate_limit', 2.5)  # rad/s
         self.declare_parameter('speed_scale', 1.0)
 
         self.dz = self.get_parameter('deadzone').value
@@ -53,9 +57,9 @@ class GamepadTwist(Node):
             return
 
         twist = Twist()
-        twist.linear.x = self._map(msg.axes[1])
-        twist.linear.y = self._map(msg.axes[0])
-        twist.angular.z = self._map(msg.axes[2])
+        twist.linear.x = self._map(msg.axes[1]) * V_MAX_LINEAR_MPS
+        twist.linear.y = self._map(msg.axes[0]) * V_MAX_LINEAR_MPS
+        twist.angular.z = self._map(msg.axes[2]) * V_MAX_ANGULAR_RADPS
 
         if self.invert_strafe:
             twist.linear.y = -twist.linear.y

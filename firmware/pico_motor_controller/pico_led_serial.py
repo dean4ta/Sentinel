@@ -8,8 +8,10 @@
 #                             (0-255, bench test format)
 #   drive,rotate,strafe    -> float triplet (-1..1), production format from
 #                             the Orin cmd_vel_serial node.
-#                             drive -> GP21, rotate -> GP19, strafe -> GP20,
-#                             pulse = 1500 + value * 500 us.
+#                             Sentinel 1 wiring (observed 2026-09-17):
+#                             strafe -> GP21, drive -> GP19, rotate -> GP20,
+#                             pulse = 1500 + value * 400 us
+#                             (1100-1900 us, GoBilda 1x20A controller spec).
 #
 # Encoder report (printed ~10 Hz, one block of four lines):
 #   FL <count>
@@ -55,9 +57,10 @@ def value_to_pulse(v):
     return 1000 + (v * 1000) // VALUE_MAX
 
 def float_to_pulse(v):
-    # Map -1..1 onto 1000-2000 us, 0 = neutral.
+    # Map -1..1 onto 1100-1900 us (GoBilda 1x20A controller PWM spec),
+    # 0 = neutral 1500 us.
     v = max(-1.0, min(1.0, v))
-    return NEUTRAL_US + int(v * 500)
+    return NEUTRAL_US + int(v * 400)
 
 def neutral_all():
     for ch in CHANNEL_PINS:
