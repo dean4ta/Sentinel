@@ -18,6 +18,19 @@ Starts `joy_node` (PS4 gamepad, 20Hz autorepeat), `gamepad_twist`, and `cmd_vel_
 
 TODO: PWM signals are not yet calibrated to actual velocity in SI units. `/cmd_vel` values are unitless drive commands in [-1,1]; need measurement of robot speed (m/s, rad/s) per command level and a mapping to true SI values.
 
+## Measured wheel variance (reference)
+
+Encoder magnitudes during forward drive, 2026-09-24 (cumulative counts, sign = side convention):
+
+```
+fl: -56667
+fr:  35954
+bl: -17136
+br:  31146
+```
+
+Left wheels negative, right positive (encoder mounting faces opposite ways) — signs are consistent, not a bug. Magnitude spread is the problem: FL fastest, BL slowest (~0.3× FL). Left-side total exceeds right → robot veers right. Root cause for per-wheel direct control + gain correction (see wheel-gain plan).
+
 ## Nodes
 
 `gamepad_twist`: subscribes `/joy`, maps axes (drive=axes[1], strafe=axes[0], rotate=axes[2]) with deadzone, publishes `geometry_msgs/Twist` on `/cmd_vel` in SI units (linear.x=drive m/s, linear.y=strafe m/s, angular.z=rotate rad/s), scaled by the same V_MAX ceilings `cmd_vel_serial` normalizes against.

@@ -23,6 +23,7 @@ setup(
         'console_scripts': [
             'gamepad_twist = sentinel_drive.gamepad_twist:main',
             'cmd_vel_serial = sentinel_drive.cmd_vel_serial:main',
+            'wheel_debug = sentinel_drive.wheel_debug:main',
         ],
     },
 )

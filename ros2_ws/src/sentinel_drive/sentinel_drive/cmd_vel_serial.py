@@ -1,24 +1,28 @@
 # /cmd_vel Twist <-> Pico serial gateway.
 #
-# Writes: subscribes /cmd_vel and writes "drive,rotate,strafe\n" float
-# triplets (-1..1) to the Pico over USB serial at a fixed rate. The Pico
-# converts values to mecanum mixer PWM and enforces its own failsafe, so
+# Writes: subscribes /cmd_vel and writes "fl,fr,bl,br\n" float wheel
+# commands (-1..1) to the Pico over USB serial at a fixed rate. The Pico
+# converts values to per-wheel PWM and enforces its own failsafe, so
 # a continuous stream at >5Hz keeps the drive alive.
+#
+# Also subscribes /wheel_cmd (std_msgs/String, "FL 30" = 30 rpm) for
+# per-wheel debug; it overrides /cmd_vel while fresh (< 0.5 s silence
+# falls back to twist).
 #
 # Reads: drains "FL <n>" / "FR <n>" / "BL <n>" / "BR <n>" encoder lines
 # from the Pico and publishes them as sentinel_drive/EncoderCounts on
 # /encoder. This node must be the only process holding the serial port,
 # so it owns both directions.
 #
-# Sentinel 1 wiring (observed 2026-09-17): 'x' signal drives robot strafe
-# (Y = -x), 'r' drives forward/back (X = -r), 'y' drives rotation
-# (R = -y). Remap + sign compensation lives here, at the hardware
-# boundary, so /cmd_vel stays clean for future autonomy nodes.
+# Direct drive, mecanum mixer bypassed (2026-09-24): FR -> GP18,
+# BR -> GP19, FL -> GP20, BL -> GP21.
 
 import serial
 import rclpy
+import rclpy.duration
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
+from std_msgs.msg import String
 from sentinel_msgs.msg import EncoderCounts
 
 ENCODER_NAMES = ('FL', 'FR', 'BL', 'BR')
@@ -33,6 +37,8 @@ V_MAX_ANGULAR_RADPS = 5.0  # TODO: measure. Placeholder pending a timed
                            # full-speed spin test (rad/s at commanded max
                            # rotate) — no clean formula; mixing happens in
                            # the hardware mecanum mixer board, not here.
+WHEEL_MAX_RPM = 312.0  # TODO: measure. 5203 19.2:1 no-load output RPM,
+                       # used by /wheel_cmd debug commands (rpm -> [-1, 1]).
 
 
 def _clamp(v):
@@ -63,7 +69,13 @@ class CmdVelSerial(Node):
         self.counts = {name: 0 for name in ENCODER_NAMES}
         self.encoder_pub = self.create_publisher(EncoderCounts, '/encoder', 10)
 
+        # Per-wheel debug state: /wheel_cmd overrides /cmd_vel while fresh.
+        self.mode = 'twist'  # 'twist' or 'wheels'
+        self.wheel_targets = {name: 0.0 for name in ENCODER_NAMES}
+        self.last_wheel_cmd = self.get_clock().now()
+
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_cb, 10)
+        self.create_subscription(String, '/wheel_cmd', self.wheel_cmd_cb, 10)
         self.create_timer(1.0 / rate, self.tick)
 
         self.get_logger().info(
@@ -72,6 +84,21 @@ class CmdVelSerial(Node):
 
     def cmd_vel_cb(self, msg):
         self.latest = msg
+
+    def wheel_cmd_cb(self, msg):
+        # "FL 30" debug format: one wheel at target RPM, rest zeroed.
+        parts = msg.data.split()
+        if len(parts) != 2 or parts[0].upper() not in self.wheel_targets:
+            return
+        try:
+            rpm = float(parts[1])
+        except ValueError:
+            return
+        for name in self.wheel_targets:
+            self.wheel_targets[name] = 0.0
+        self.wheel_targets[parts[0].upper()] = _clamp(rpm / WHEEL_MAX_RPM)
+        self.last_wheel_cmd = self.get_clock().now()
+        self.mode = 'wheels'
 
     def tick(self):
         # One timer drives both directions: drain whatever the Pico sent
@@ -116,15 +143,27 @@ class CmdVelSerial(Node):
         self.encoder_pub.publish(msg)
 
     def send_latest(self):
-        # Wiring remap + sign compensation, see header comment.
-        # Normalize SI velocities against the ceiling constants before
-        # writing the [-1, 1] wire protocol.
-        x_sig = _clamp(-self.latest.linear.y / V_MAX_LINEAR_MPS)
-        r_sig = _clamp(self.latest.linear.x / V_MAX_LINEAR_MPS)
-        y_sig = _clamp(self.latest.angular.z / V_MAX_ANGULAR_RADPS)
+        # Wheel debug commands win while fresh; fall back to /cmd_vel
+        # after 0.5 s of silence so a dead debug node can't hold motion.
+        if self.mode == 'wheels' and (
+                self.get_clock().now() - self.last_wheel_cmd
+                > rclpy.duration.Duration(seconds=0.5)):
+            self.mode = 'twist'
+
+        if self.mode == 'wheels':
+            fl = self.wheel_targets['FL']
+            fr = self.wheel_targets['FR']
+            bl = self.wheel_targets['BL']
+            br = self.wheel_targets['BR']
+        else:
+            # Forward drive only: same normalized command to all wheels.
+            # TODO: full mecanum inverse kinematics (strafe, rotate).
+            # TODO: per-wheel gains / speed controller here
+            #       (target speed -> PWM -> encoder feedback).
+            fwd = _clamp(self.latest.linear.x / V_MAX_LINEAR_MPS)
+            fl = fr = bl = br = fwd
         try:
-            self.ser.write(
-                f'{x_sig:.3f},{r_sig:.3f},{y_sig:.3f}\n'.encode())
+            self.ser.write(f'{fl:.3f},{fr:.3f},{bl:.3f},{br:.3f}\n'.encode())
         except serial.SerialException as e:
             self.get_logger().error(
                 f'Serial write failed: {e}', throttle_duration_sec=2.0)
