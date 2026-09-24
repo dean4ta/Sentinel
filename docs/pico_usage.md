@@ -10,7 +10,8 @@ python -m venv .venv  # First time - create virtual env if one doesn't already e
 source .venv/bin/activate
 
 # find device — Pico is ttyACM*
-ls /dev/ttyACM*
+ls /dev/ttyACM*  # or
+ls /dev/sentinel_pico. # if udev rules are set
 ```
 
 Deploy (program auto-starts on next reset):

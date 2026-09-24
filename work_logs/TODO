@@ -1,1 +1,2 @@
  - [x] ~~make a udev rule for the pico~~ done - see pico_usage.md
+ - [ ] tune angular velocity — V_MAX_ANGULAR_RADPS (5.0) wrong: 0.5 rad/s cmd turned full circle in 2-3 s. Timed max-rotate test, set constant.
