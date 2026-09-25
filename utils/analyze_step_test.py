@@ -45,7 +45,7 @@ def extract(bag_dir, wheel):
         for conn, ts_, raw in reader.messages():
             if conn.msgtype != MSGTYPE:
                 continue
-            msg = typestore.deserialize_ros2(raw, conn.msgtype)
+            msg = typestore.deserialize_cdr(raw, conn.msgtype)
             ts.append(ts_)
             targets.append(getattr(msg, TARGET_FIELDS[wheel]))
             measured.append(getattr(msg, MEASURED_FIELDS[wheel]))
