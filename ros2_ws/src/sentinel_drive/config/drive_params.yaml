@@ -14,7 +14,7 @@ cmd_vel_serial:
     # are conservative placeholders pending tuning.
     pid_output_limit: 0.3   # cap on PID output: keeps wheel rpm low
     rpm_ema_alpha: 0.4      # EMA blend for measured rpm (0.3-0.5 typical)
-    pid_enabled: true       # false = open-loop: target rpm -> PWM directly
+    pid_enabled: false      # false = open-loop: target rpm -> PWM directly
                             # (still capped at pid_output_limit)
     fl_kp: 0.005
     fl_ki: 0.0
