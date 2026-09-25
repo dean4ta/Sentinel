@@ -28,7 +28,7 @@ def generate_launch_description():
     wheel = LaunchConfiguration('wheel', default='FL')
     steps = LaunchConfiguration(
         'steps', default='0.2,5;0.5,10;1.0,5;0,1;-1.0,5;-2.0,5;0,1')
-    sine = LaunchConfiguration('sine', default='2.0,10,10')
+    sine = LaunchConfiguration('sine', default='1.5,10,10')
     bag_out = LaunchConfiguration(
         'bag_out',
         default='data/step_test_' + datetime.now().strftime('%Y-%m-%d_%H%M'))
