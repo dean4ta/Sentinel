@@ -6,13 +6,15 @@
 #   ros2 launch sentinel_drive step_test.launch.py \
 #       wheel:=FL steps:="0.2,5;0.5,10;1.0,5;0,1;-1.0,10"
 #
-# Ctrl-C after the test node prints "all steps done" — the bag stops
-# with the launch.
+# The launch ends by itself: 1 s after the test node finishes its last
+# step, everything shuts down and the bag closes cleanly. A symlink
+# data/step_test_latest always points at the newest recording:
+#   python analyze_step_test.py ../data/step_test_latest --wheel FL ...
 
 from datetime import datetime
 
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, TimerAction
+from launch.actions import ExecuteProcess, Shutdown, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -42,15 +44,21 @@ def generate_launch_description():
         output='screen',
     )
 
+    link_latest = ExecuteProcess(
+        cmd=['ln', '-sfn', bag_out, 'data/step_test_latest'],
+        output='screen',
+    )
+
     test_node = TimerAction(
         period=2.0,  # let the bag start listening before step 1
-        actions=[Node(
-            package='sentinel_drive',
-            executable='speed_step_test',
-            name='speed_step_test',
-            arguments=[wheel, steps],
+        actions=[ExecuteProcess(
+            cmd=['ros2', 'run', 'sentinel_drive', 'speed_step_test',
+                 wheel, steps],
             output='screen',
+            on_exit=[TimerAction(
+                period=1.0,  # let the last step settle, then stop everything
+                actions=[Shutdown()])],
         )],
     )
 
-    return LaunchDescription([serial_node, bag, test_node])
+    return LaunchDescription([serial_node, bag, link_latest, test_node])
