@@ -13,8 +13,9 @@ from datetime import datetime
 
 from launch import LaunchDescription
 from launch.actions import ExecuteProcess, TimerAction
-from launch.substitutions import FindPackageShare, LaunchConfiguration
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 SHARE = FindPackageShare('sentinel_drive')
 
