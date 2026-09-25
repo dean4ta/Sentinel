@@ -26,12 +26,18 @@ MSGDEF = (
     'float32 fr_measured_rpm\n'
     'float32 bl_measured_rpm\n'
     'float32 br_measured_rpm\n'
+    'float32 fl_cmd_rpm\n'
+    'float32 fr_cmd_rpm\n'
+    'float32 bl_cmd_rpm\n'
+    'float32 br_cmd_rpm\n'
 )
 
 TARGET_FIELDS = {'FL': 'fl_target_rpm', 'FR': 'fr_target_rpm',
                  'BL': 'bl_target_rpm', 'BR': 'br_target_rpm'}
 MEASURED_FIELDS = {'FL': 'fl_measured_rpm', 'FR': 'fr_measured_rpm',
                    'BL': 'bl_measured_rpm', 'BR': 'br_measured_rpm'}
+CMD_FIELDS = {'FL': 'fl_cmd_rpm', 'FR': 'fr_cmd_rpm',
+              'BL': 'bl_cmd_rpm', 'BR': 'br_cmd_rpm'}
 COUNT_FIELDS = {'FL': 'fl', 'FR': 'fr', 'BL': 'bl', 'BR': 'br'}
 
 ENC_MSGTYPE = 'sentinel_msgs/msg/EncoderCounts'
@@ -52,6 +58,7 @@ def extract(bag_dir, wheel):
     ts = []
     targets = []
     measured = []
+    cmds = []
     enc_ts = []
     counts = []
     with Reader(bag_dir) as reader:
@@ -61,14 +68,15 @@ def extract(bag_dir, wheel):
                 ts.append(ts_)
                 targets.append(getattr(msg, TARGET_FIELDS[wheel]))
                 measured.append(getattr(msg, MEASURED_FIELDS[wheel]))
+                cmds.append(getattr(msg, CMD_FIELDS[wheel]))
             elif conn.msgtype == ENC_MSGTYPE:
                 msg = typestore.deserialize_cdr(raw, conn.msgtype)
                 enc_ts.append(ts_)
                 counts.append(getattr(msg, COUNT_FIELDS[wheel]))
-    return ts, targets, measured, enc_ts, counts
+    return ts, targets, measured, cmds, enc_ts, counts
 
 
-def plot(ts, targets, measured, enc_ts, counts, wheel, out_path):
+def plot(ts, targets, measured, cmds, enc_ts, counts, wheel, out_path):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -79,7 +87,9 @@ def plot(ts, targets, measured, enc_ts, counts, wheel, out_path):
 
     fig, (ax_rpm, ax_cnt) = plt.subplots(
         2, 1, figsize=(12, 8), sharex=True)
-    ax_rpm.plot(t, targets, label='target rpm', drawstyle='steps-post')
+    ax_rpm.plot(t, targets, label='target rpm', drawstyle='steps-post',
+                alpha=0.5)
+    ax_rpm.plot(t, cmds, label='commanded rpm', alpha=0.5)
     ax_rpm.plot(t, measured, label='measured rpm', alpha=0.8)
     ax_rpm.set_ylabel('rpm')
     ax_rpm.set_title(f'{wheel} step response')
@@ -105,11 +115,12 @@ def main():
     ap.add_argument('-o', '--out', required=True)
     args = ap.parse_args()
 
-    ts, targets, measured, enc_ts, counts = extract(args.bag_dir, args.wheel)
+    ts, targets, measured, cmds, enc_ts, counts = extract(args.bag_dir,
+                                                          args.wheel)
     if not ts:
         print(f'no WheelSpeeds messages found in {args.bag_dir}', file=sys.stderr)
         raise SystemExit(1)
-    plot(ts, targets, measured, enc_ts, counts, args.wheel, args.out)
+    plot(ts, targets, measured, cmds, enc_ts, counts, args.wheel, args.out)
 
 
 if __name__ == '__main__':

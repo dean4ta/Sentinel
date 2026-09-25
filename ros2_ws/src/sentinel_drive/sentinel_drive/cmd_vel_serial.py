@@ -233,7 +233,7 @@ class CmdVelSerial(Node):
             self.last_counts[name] = self.counts[name]
         self.last_enc_time = now
 
-    def publish_wheel_speeds(self, targets):
+    def publish_wheel_speeds(self, targets, cmds):
         msg = WheelSpeeds()
         msg.fl_target_rpm = float(targets['FL'])
         msg.fr_target_rpm = float(targets['FR'])
@@ -243,6 +243,12 @@ class CmdVelSerial(Node):
         msg.fr_measured_rpm = self.measured_rpm['FR']
         msg.bl_measured_rpm = self.measured_rpm['BL']
         msg.br_measured_rpm = self.measured_rpm['BR']
+        # PID output is normalized PWM; convert back to rpm-equivalent so
+        # the bag shows what was actually commanded to the wheel.
+        msg.fl_cmd_rpm = cmds['FL'] * WHEEL_MAX_RPM
+        msg.fr_cmd_rpm = cmds['FR'] * WHEEL_MAX_RPM
+        msg.bl_cmd_rpm = cmds['BL'] * WHEEL_MAX_RPM
+        msg.br_cmd_rpm = cmds['BR'] * WHEEL_MAX_RPM
         self.wheel_speeds_pub.publish(msg)
 
     def send_latest(self):
@@ -285,7 +291,7 @@ class CmdVelSerial(Node):
                 out_max = self.pids[name].out_max
                 cmds[name] = max(-out_max, min(out_max, raw))
 
-        self.publish_wheel_speeds(targets)
+        self.publish_wheel_speeds(targets, cmds)
 
         fl = cmds['FL'] * WHEEL_DIRECTIONS['FL']
         fr = cmds['FR'] * WHEEL_DIRECTIONS['FR']
