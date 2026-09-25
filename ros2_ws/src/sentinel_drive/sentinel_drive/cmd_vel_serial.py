@@ -124,7 +124,9 @@ class CmdVelSerial(Node):
 
         # Per-wheel speed controllers + feedback state.
         self.declare_parameter('pid_output_limit', 0.3)
+        self.declare_parameter('rpm_ema_alpha', 0.4)
         out_max = self.get_parameter('pid_output_limit').value
+        self.ema_alpha = self.get_parameter('rpm_ema_alpha').value
         self.pids = {}
         for name in ENCODER_NAMES:
             self.declare_parameter(f'{name.lower()}_kp', 0.005)
@@ -218,8 +220,12 @@ class CmdVelSerial(Node):
         for name in ENCODER_NAMES:
             # ponytail: no int32 wrap handling; wraps after ~4M revs.
             delta = self.counts[name] - self.last_counts[name]
+            raw = delta * ENC_DIRECTIONS[name] * 60.0 / TICKS_PER_REV / dt
+            # EMA smooth: raw rpm quantizes to ~±11 rpm steps at low speed
+            # (5 ticks per 20 ms at 27 rpm); filter before the PID sees it.
             self.measured_rpm[name] = (
-                delta * ENC_DIRECTIONS[name] * 60.0 / TICKS_PER_REV / dt)
+                self.ema_alpha * raw
+                + (1.0 - self.ema_alpha) * self.measured_rpm[name])
             self.last_counts[name] = self.counts[name]
         self.last_enc_time = now
 
