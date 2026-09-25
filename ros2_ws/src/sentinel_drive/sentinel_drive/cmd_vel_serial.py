@@ -113,6 +113,7 @@ class CmdVelSerial(Node):
         self.latest = Twist()
         self.rx_buf = b''
         self.counts = {name: 0 for name in ENCODER_NAMES}
+        self.enc_seen = set()  # wheels that have reported at least once
         self.encoder_pub = self.create_publisher(EncoderCounts, '/encoder', 10)
         self.wheel_speeds_pub = self.create_publisher(
             WheelSpeeds, '/wheel_speeds', 10)
@@ -123,14 +124,19 @@ class CmdVelSerial(Node):
         self.last_wheel_cmd = self.get_clock().now()
 
         # Per-wheel speed controllers + feedback state.
-        self.declare_parameter('pid_output_limit', 0.3)
+        self.declare_parameter('output_limit', 0.6)
         self.declare_parameter('rpm_ema_alpha', 0.4)
-        out_max = self.get_parameter('pid_output_limit').value
+        out_max = self.get_parameter('output_limit').value
         self.ema_alpha = self.get_parameter('rpm_ema_alpha').value
         # false = open-loop: target rpm mapped straight to PWM (still capped
-        # at pid_output_limit). Startup-only; restart to toggle.
+        # at output_limit). Startup-only; restart to toggle.
         self.declare_parameter('pid_enabled', True)
         self.pid_enabled = self.get_parameter('pid_enabled').value
+        # Feedforward from open-loop plant fit (see drive_params.yaml).
+        self.declare_parameter('ff_deadband_rpm', 14.0)
+        self.declare_parameter('ff_gain', 1.17)
+        self.ff_deadband = self.get_parameter('ff_deadband_rpm').value
+        self.ff_gain = self.get_parameter('ff_gain').value
         self.pids = {}
         for name in ENCODER_NAMES:
             self.declare_parameter(f'{name.lower()}_kp', 0.005)
@@ -204,6 +210,7 @@ class CmdVelSerial(Node):
             except ValueError:
                 continue
             self.counts[parts[0]] = value
+            self.enc_seen.add(parts[0])
             updated = True
         if updated:
             self.publish_counts()
@@ -222,6 +229,11 @@ class CmdVelSerial(Node):
         if dt <= 0:
             return
         for name in ENCODER_NAMES:
+            if name not in self.enc_seen:
+                # Prime baseline on first line from this wheel: computing
+                # a delta from 0 spikes the EMA with the absolute count.
+                self.last_counts[name] = self.counts[name]
+                continue
             # ponytail: no int32 wrap handling; wraps after ~4M revs.
             delta = self.counts[name] - self.last_counts[name]
             raw = delta * ENC_DIRECTIONS[name] * 60.0 / TICKS_PER_REV / dt
@@ -250,6 +262,14 @@ class CmdVelSerial(Node):
         msg.bl_cmd_rpm = cmds['BL'] * WHEEL_MAX_RPM
         msg.br_cmd_rpm = cmds['BR'] * WHEEL_MAX_RPM
         self.wheel_speeds_pub.publish(msg)
+
+    def feedforward(self, target_rpm):
+        """Deadband-compensated plant inverse: rpm -> normalized PWM."""
+        if abs(target_rpm) < self.ff_deadband:
+            return 0.0
+        sign = 1.0 if target_rpm >= 0 else -1.0
+        ff_rpm = sign * (self.ff_deadband + abs(target_rpm) / self.ff_gain)
+        return ff_rpm / WHEEL_MAX_RPM
 
     def send_latest(self):
         now = self.get_clock().now()
@@ -280,15 +300,18 @@ class CmdVelSerial(Node):
 
         cmds = {}
         for name in ENCODER_NAMES:
+            out_max = self.pids[name].out_max
             if self.pid_enabled:
                 error = targets[name] - self.measured_rpm[name]
-                cmds[name] = self.pids[name].update(error, dt)
+                ff = self.feedforward(targets[name])
+                cmd = ff + self.pids[name].update(error, dt)
+                cmds[name] = max(-out_max, min(out_max, cmd))
                 if enc_stale:
                     cmds[name] = 0.0
             else:
-                # Open-loop: target rpm -> normalized PWM, capped for safety.
+                # Open-loop: raw passthrough (plant characterization),
+                # no feedforward, capped for safety.
                 raw = targets[name] / WHEEL_MAX_RPM
-                out_max = self.pids[name].out_max
                 cmds[name] = max(-out_max, min(out_max, raw))
 
         self.publish_wheel_speeds(targets, cmds)
