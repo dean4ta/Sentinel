@@ -40,6 +40,12 @@ V_MAX_ANGULAR_RADPS = 5.0  # TODO: measure. Placeholder pending a timed
 WHEEL_MAX_RPM = 312.0  # TODO: measure. 5203 19.2:1 no-load output RPM,
                        # used by /wheel_cmd debug commands (rpm -> [-1, 1]).
 
+# Per-wheel PWM direction: +1 = positive command spins wheel forward.
+# FR/BR flipped (observed 2026-09-24): right-side motor controllers mount
+# with opposite polarity. Applied at the serial boundary so both /cmd_vel
+# and /wheel_cmd get corrected.
+WHEEL_DIRECTIONS = {'FL': 1.0, 'FR': -1.0, 'BL': 1.0, 'BR': -1.0}
+
 
 def _clamp(v):
     return max(-1.0, min(1.0, v))
@@ -162,6 +168,10 @@ class CmdVelSerial(Node):
             #       (target speed -> PWM -> encoder feedback).
             fwd = _clamp(self.latest.linear.x / V_MAX_LINEAR_MPS)
             fl = fr = bl = br = fwd
+        fl *= WHEEL_DIRECTIONS['FL']
+        fr *= WHEEL_DIRECTIONS['FR']
+        bl *= WHEEL_DIRECTIONS['BL']
+        br *= WHEEL_DIRECTIONS['BR']
         try:
             self.ser.write(f'{fl:.3f},{fr:.3f},{bl:.3f},{br:.3f}\n'.encode())
         except serial.SerialException as e:
