@@ -46,8 +46,10 @@ def generate_launch_description():
 
     # Symlink lives inside data/, so the target must not carry the
     # data/ prefix: ln resolves relative paths against the link's dir.
+    # mkdir -p first: ln may run before rosbag creates data/.
     link_latest = ExecuteProcess(
-        cmd=['bash', '-c', 'ln -sfn "${1#data/}" data/step_test_latest',
+        cmd=['bash', '-c',
+             'mkdir -p data && ln -sfn "${1#data/}" data/step_test_latest',
              '_', bag_out],
         output='screen',
     )
