@@ -127,6 +127,10 @@ class CmdVelSerial(Node):
         self.declare_parameter('rpm_ema_alpha', 0.4)
         out_max = self.get_parameter('pid_output_limit').value
         self.ema_alpha = self.get_parameter('rpm_ema_alpha').value
+        # false = open-loop: target rpm mapped straight to PWM (still capped
+        # at pid_output_limit). Startup-only; restart to toggle.
+        self.declare_parameter('pid_enabled', True)
+        self.pid_enabled = self.get_parameter('pid_enabled').value
         self.pids = {}
         for name in ENCODER_NAMES:
             self.declare_parameter(f'{name.lower()}_kp', 0.005)
@@ -270,10 +274,16 @@ class CmdVelSerial(Node):
 
         cmds = {}
         for name in ENCODER_NAMES:
-            error = targets[name] - self.measured_rpm[name]
-            cmds[name] = self.pids[name].update(error, dt)
-            if enc_stale:
-                cmds[name] = 0.0
+            if self.pid_enabled:
+                error = targets[name] - self.measured_rpm[name]
+                cmds[name] = self.pids[name].update(error, dt)
+                if enc_stale:
+                    cmds[name] = 0.0
+            else:
+                # Open-loop: target rpm -> normalized PWM, capped for safety.
+                raw = targets[name] / WHEEL_MAX_RPM
+                out_max = self.pids[name].out_max
+                cmds[name] = max(-out_max, min(out_max, raw))
 
         self.publish_wheel_speeds(targets)
 
