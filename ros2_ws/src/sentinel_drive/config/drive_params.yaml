@@ -7,6 +7,6 @@ gamepad_twist:
 
 cmd_vel_serial:
   ros__parameters:
-    serial_port: /dev/ttyACM0
+    serial_port: /dev/sentinel_pico
     baud: 460800
     publish_rate: 50.0

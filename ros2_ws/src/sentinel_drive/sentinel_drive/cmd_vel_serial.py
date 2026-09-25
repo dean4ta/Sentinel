@@ -50,7 +50,7 @@ class CmdVelSerial(Node):
     def __init__(self):
         super().__init__('cmd_vel_serial')
 
-        self.declare_parameter('serial_port', '/dev/ttyACM0')
+        self.declare_parameter('serial_port', '/dev/sentinel_pico')
         self.declare_parameter('baud', 460800)
         self.declare_parameter('publish_rate', 50.0)
 
