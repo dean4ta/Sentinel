@@ -12,7 +12,7 @@ cmd_vel_serial:
     publish_rate: 50.0
     # Per-wheel speed PID gains (error in rpm -> normalized PWM). Defaults
     # are conservative placeholders pending tuning.
-    output_limit: 0.45       # cap on commanded PWM, PID and open-loop
+    output_limit: 0.45      # cap on commanded PWM, PID and open-loop
     rpm_ema_alpha: 0.2      # EMA blend for measured rpm (0.3-0.5 typical)
     pid_enabled: true       # false = open-loop: target rpm -> PWM directly
                             # (still capped at output_limit)
@@ -21,8 +21,8 @@ cmd_vel_serial:
     ff_deadband_rpm: 14.0   # feedforward target below this -> 0
     ff_gain: 1.17
     fl_kp: 0.001
-    fl_ki: 0.1
-    fl_kd: 0.0
+    fl_ki: 0.001
+    fl_kd: 0.00001
     fr_kp: 0.005
     fr_ki: 0.0
     fr_kd: 0.0
