@@ -4,7 +4,9 @@
 #
 # Usage (from repo root, robot on blocks):
 #   ros2 launch sentinel_drive step_test.launch.py \
-#       wheel:=FL steps:="0.2,5;0.5,10;1.0,5;0,1;-1.0,10"
+#       wheel:=FL steps:="0.2,5;0.5,10;1.0,5;0,1;-1.0,10" sine:="2.0,10,10"
+# sine is "amp_mps,period_s,duration_s"; defaults to one full 10 s cycle
+# at +/-2 m/s.
 #
 # The launch ends by itself: 1 s after the test node finishes its last
 # step, everything shuts down and the bag closes cleanly. A symlink
@@ -25,7 +27,8 @@ SHARE = FindPackageShare('sentinel_drive')
 def generate_launch_description():
     wheel = LaunchConfiguration('wheel', default='FL')
     steps = LaunchConfiguration(
-        'steps', default='0.2,5;0.5,10;1.0,5;0,1;-1.0,10')
+        'steps', default='0.2,5;0.5,10;1.0,5;0,1;-1.0,5;-2.0,5;0,1')
+    sine = LaunchConfiguration('sine', default='2.0,10,10')
     bag_out = LaunchConfiguration(
         'bag_out',
         default='data/step_test_' + datetime.now().strftime('%Y-%m-%d_%H%M'))
@@ -58,7 +61,7 @@ def generate_launch_description():
         period=2.0,  # let the bag start listening before step 1
         actions=[ExecuteProcess(
             cmd=['ros2', 'run', 'sentinel_drive', 'speed_step_test',
-                 wheel, steps],
+                 wheel, steps, sine],
             output='screen',
             on_exit=[TimerAction(
                 period=1.0,  # let the last step settle, then stop everything

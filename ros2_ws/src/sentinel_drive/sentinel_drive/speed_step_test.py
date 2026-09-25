@@ -1,8 +1,9 @@
 # Step-response test node: drives one wheel through a list of
-# (speed m/s, duration s) pairs by publishing /wheel_cmd.
+# (speed m/s, duration s) pairs by publishing /wheel_cmd, then an
+# optional sine sweep "amp_mps,period_s,duration_s".
 #
 # Usage:
-#   ros2 run sentinel_drive speed_step_test FL "0.2,5;0.5,10;1.0,5;0,1;-1.0,10"
+#   ros2 run sentinel_drive speed_step_test FL "0.2,5;0.5,10;1.0,5;0,1;-1.0,10" "2.0,10,10"
 #
 # Publish continuously (20 Hz) so cmd_vel_serial's /wheel_cmd freshness
 # never expires mid-step. Record with rosbag while it runs:
@@ -11,6 +12,7 @@
 # Robot on blocks. m/s -> wheel rpm uses the nominal 140 mm wheel
 # circumference.
 
+import math
 import sys
 import rclpy
 from rclpy.node import Node
@@ -28,14 +30,21 @@ def parse_steps(text):
     return steps
 
 
+def parse_sine(text):
+    amp, period, dur = text.split(',')
+    return float(amp), float(period), float(dur)
+
+
 class SpeedStepTest(Node):
 
-    def __init__(self, wheel, steps):
+    def __init__(self, wheel, steps, sine=None):
         super().__init__('speed_step_test')
         self.wheel = wheel.upper()
         if self.wheel not in WHEELS:
             raise SystemExit(f'unknown wheel {wheel}, use one of {WHEELS}')
         self.steps = steps
+        self.sine = sine  # (amp m/s, period s, duration s) or None
+        self.phase = 'steps'
         self.step_idx = 0
         self.step_start = self.get_clock().now()
         self.pub = self.create_publisher(String, '/wheel_cmd', 10)
@@ -52,7 +61,18 @@ class SpeedStepTest(Node):
     def tick(self):
         now = self.get_clock().now()
 
+        if self.phase == 'sine':
+            self._tick_sine(now)
+            return
+
         if self.step_idx >= len(self.steps):
+            if self.sine is not None:
+                self.phase = 'sine'
+                self.step_start = now
+                amp, period, dur = self.sine
+                self.get_logger().info(
+                    f'sine: {amp} m/s amp, {period} s period, {dur} s')
+                return
             self._send(0.0)
             self.get_logger().info('all steps done')
             raise SystemExit(0)
@@ -71,15 +91,26 @@ class SpeedStepTest(Node):
             speed, _ = self.steps[self.step_idx]
             self._send(speed / WHEEL_CIRCUMFERENCE_M * 60.0)
 
+    def _tick_sine(self, now):
+        amp, period, dur = self.sine
+        t = (now - self.step_start).nanoseconds / 1e9
+        if t >= dur:
+            self._send(0.0)
+            self.get_logger().info('sine done')
+            raise SystemExit(0)
+        v = amp * math.sin(2 * math.pi * t / period)
+        self._send(v / WHEEL_CIRCUMFERENCE_M * 60.0)
+
 
 def main(args=None):
     rclpy.init(args=args)
     try:
         if len(sys.argv) < 3:
             print('usage: ros2 run sentinel_drive speed_step_test WHEEL '
-                  '"speed,dur;speed,dur;..."')
+                  '"speed,dur;speed,dur;..." ["amp,period,dur"]')
             raise SystemExit(1)
-        node = SpeedStepTest(sys.argv[1], parse_steps(sys.argv[2]))
+        sine = parse_sine(sys.argv[3]) if len(sys.argv) > 3 else None
+        node = SpeedStepTest(sys.argv[1], parse_steps(sys.argv[2]), sine)
         rclpy.spin(node)
     except (SystemExit, KeyboardInterrupt):
         pass
