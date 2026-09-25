@@ -18,3 +18,4 @@ weekly_report/*
 
 # Tuning test data (rosbags + plots), repo-root data/
 data/
+plots/

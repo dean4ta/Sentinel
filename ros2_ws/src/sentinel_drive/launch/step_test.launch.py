@@ -27,7 +27,7 @@ SHARE = FindPackageShare('sentinel_drive')
 def generate_launch_description():
     wheel = LaunchConfiguration('wheel', default='FL')
     steps = LaunchConfiguration(
-        'steps', default='0.2,5;0.5,10;1.0,5;0,1;-1.0,5;-2.0,5;0,1')
+        'steps', default='0.2,2;0.5,2;1.0,2;0,1;-1.0,2;-2.0,2;0,1')
     sine = LaunchConfiguration('sine', default='1.5,10,10')
     bag_out = LaunchConfiguration(
         'bag_out',
