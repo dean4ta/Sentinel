@@ -1,4 +1,8 @@
-# /cmd_vel Twist <-> Pico serial gateway.
+# /cmd_vel Twist <-> Pico serial gateway with per-wheel speed control.
+#
+# Control chain (per wheel):
+#   target speed (rpm) -> PID (kp/ki/kd params) -> normalized PWM [-1,1]
+#   -> Pico -> motor -> encoder feedback (counts -> measured rpm)
 #
 # Writes: subscribes /cmd_vel and writes "fl,fr,bl,br\n" float wheel
 # commands (-1..1) to the Pico over USB serial at a fixed rate. The Pico
@@ -40,15 +44,49 @@ V_MAX_ANGULAR_RADPS = 5.0  # TODO: measure. Placeholder pending a timed
 WHEEL_MAX_RPM = 312.0  # TODO: measure. 5203 19.2:1 no-load output RPM,
                        # used by /wheel_cmd debug commands (rpm -> [-1, 1]).
 
+# Encoder ticks per output-shaft revolution (measured 2026-09-24,
+# 20 hand-spun revolutions: 532.65/532.65/532.85/529.85 ticks/rev).
+TICKS_PER_REV = 532.0
+
 # Per-wheel PWM direction: +1 = positive command spins wheel forward.
 # FR/BR flipped (observed 2026-09-24): right-side motor controllers mount
 # with opposite polarity. Applied at the serial boundary so both /cmd_vel
 # and /wheel_cmd get corrected.
 WHEEL_DIRECTIONS = {'FL': 1.0, 'FR': -1.0, 'BL': 1.0, 'BR': -1.0}
 
+# Encoder count sign during forward motion (observed 2026-09-24): left
+# wheels count negative, right positive (mirrored encoder mounting).
+ENC_DIRECTIONS = {'FL': -1.0, 'FR': 1.0, 'BL': -1.0, 'BR': 1.0}
+
+# Encoder silence longer than this disables PID output (neutral PWM):
+# stale feedback must never drive a runaway wheel.
+ENC_STALE_S = 0.25
+
 
 def _clamp(v):
     return max(-1.0, min(1.0, v))
+
+
+class WheelPID:
+    """Per-wheel speed PID: error in rpm -> normalized PWM output [-1,1]."""
+
+    def __init__(self, kp, ki, kd):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.integral = 0.0
+        self.prev_error = 0.0
+
+    def update(self, error, dt):
+        if dt <= 0:
+            return 0.0
+        self.integral += error * dt
+        # Anti-windup: integral term limited to ±1 of output authority.
+        self.integral = _clamp(self.integral)
+        deriv = (error - self.prev_error) / dt
+        self.prev_error = error
+        out = self.kp * error + self.ki * self.integral + self.kd * deriv
+        return _clamp(out)
 
 
 class CmdVelSerial(Node):
@@ -80,6 +118,22 @@ class CmdVelSerial(Node):
         self.wheel_targets = {name: 0.0 for name in ENCODER_NAMES}
         self.last_wheel_cmd = self.get_clock().now()
 
+        # Per-wheel speed controllers + feedback state.
+        self.pids = {}
+        for name in ENCODER_NAMES:
+            self.declare_parameter(f'{name.lower()}_kp', 0.01)
+            self.declare_parameter(f'{name.lower()}_ki', 0.0)
+            self.declare_parameter(f'{name.lower()}_kd', 0.0)
+            self.pids[name] = WheelPID(
+                self.get_parameter(f'{name.lower()}_kp').value,
+                self.get_parameter(f'{name.lower()}_ki').value,
+                self.get_parameter(f'{name.lower()}_kd').value)
+        self.measured_rpm = {name: 0.0 for name in ENCODER_NAMES}
+        self.last_counts = {name: 0 for name in ENCODER_NAMES}
+        now = self.get_clock().now()
+        self.last_enc_time = now
+        self.last_pid_time = now
+
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_cb, 10)
         self.create_subscription(String, '/wheel_cmd', self.wheel_cmd_cb, 10)
         self.create_timer(1.0 / rate, self.tick)
@@ -102,14 +156,15 @@ class CmdVelSerial(Node):
             return
         for name in self.wheel_targets:
             self.wheel_targets[name] = 0.0
-        self.wheel_targets[parts[0].upper()] = _clamp(rpm / WHEEL_MAX_RPM)
+        self.wheel_targets[parts[0].upper()] = rpm
         self.last_wheel_cmd = self.get_clock().now()
         self.mode = 'wheels'
 
     def tick(self):
-        # One timer drives both directions: drain whatever the Pico sent
-        # (>= its 50 Hz report rate), then write the latest /cmd_vel.
+        # One timer drives all directions: drain encoder lines, refresh
+        # measured rpm, run the PIDs, write wheel commands.
         self.drain_encoders()
+        self.update_rpm()
         self.send_latest()
 
     def drain_encoders(self):
@@ -148,30 +203,57 @@ class CmdVelSerial(Node):
         msg.br = self.counts['BR']
         self.encoder_pub.publish(msg)
 
+    def update_rpm(self):
+        now = self.get_clock().now()
+        dt = (now - self.last_enc_time).nanoseconds / 1e9
+        if dt <= 0:
+            return
+        for name in ENCODER_NAMES:
+            # ponytail: no int32 wrap handling; wraps after ~4M revs.
+            delta = self.counts[name] - self.last_counts[name]
+            self.measured_rpm[name] = (
+                delta * ENC_DIRECTIONS[name] * 60.0 / TICKS_PER_REV / dt)
+            self.last_counts[name] = self.counts[name]
+        self.last_enc_time = now
+
     def send_latest(self):
+        now = self.get_clock().now()
+
         # Wheel debug commands win while fresh; fall back to /cmd_vel
         # after 0.5 s of silence so a dead debug node can't hold motion.
         if self.mode == 'wheels' and (
-                self.get_clock().now() - self.last_wheel_cmd
+                now - self.last_wheel_cmd
                 > rclpy.duration.Duration(seconds=0.5)):
             self.mode = 'twist'
 
         if self.mode == 'wheels':
-            fl = self.wheel_targets['FL']
-            fr = self.wheel_targets['FR']
-            bl = self.wheel_targets['BL']
-            br = self.wheel_targets['BR']
+            targets = self.wheel_targets
         else:
-            # Forward drive only: same normalized command to all wheels.
+            # Forward drive only: same target rpm to all wheels.
             # TODO: full mecanum inverse kinematics (strafe, rotate).
-            # TODO: per-wheel gains / speed controller here
-            #       (target speed -> PWM -> encoder feedback).
             fwd = _clamp(self.latest.linear.x / V_MAX_LINEAR_MPS)
-            fl = fr = bl = br = fwd
-        fl *= WHEEL_DIRECTIONS['FL']
-        fr *= WHEEL_DIRECTIONS['FR']
-        bl *= WHEEL_DIRECTIONS['BL']
-        br *= WHEEL_DIRECTIONS['BR']
+            targets = {name: fwd * WHEEL_MAX_RPM for name in ENCODER_NAMES}
+
+        dt = (now - self.last_pid_time).nanoseconds / 1e9
+        self.last_pid_time = now
+
+        enc_stale = (now - self.last_enc_time).nanoseconds / 1e9 > ENC_STALE_S
+        if enc_stale:
+            self.get_logger().warn(
+                'Encoder data stale, sending neutral PWM',
+                throttle_duration_sec=2.0)
+
+        cmds = {}
+        for name in ENCODER_NAMES:
+            error = targets[name] - self.measured_rpm[name]
+            cmds[name] = self.pids[name].update(error, dt)
+            if enc_stale:
+                cmds[name] = 0.0
+
+        fl = cmds['FL'] * WHEEL_DIRECTIONS['FL']
+        fr = cmds['FR'] * WHEEL_DIRECTIONS['FR']
+        bl = cmds['BL'] * WHEEL_DIRECTIONS['BL']
+        br = cmds['BR'] * WHEEL_DIRECTIONS['BR']
         try:
             self.ser.write(f'{fl:.3f},{fr:.3f},{bl:.3f},{br:.3f}\n'.encode())
         except serial.SerialException as e:

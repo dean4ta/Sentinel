@@ -10,3 +10,17 @@ cmd_vel_serial:
     serial_port: /dev/sentinel_pico
     baud: 460800
     publish_rate: 50.0
+    # Per-wheel speed PID gains (error in rpm -> normalized PWM). Defaults
+    # are conservative placeholders pending tuning.
+    fl_kp: 0.01
+    fl_ki: 0.0
+    fl_kd: 0.0
+    fr_kp: 0.01
+    fr_ki: 0.0
+    fr_kd: 0.0
+    bl_kp: 0.01
+    bl_ki: 0.0
+    bl_kd: 0.0
+    br_kp: 0.01
+    br_ki: 0.0
+    br_kd: 0.0
