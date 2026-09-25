@@ -44,8 +44,11 @@ def generate_launch_description():
         output='screen',
     )
 
+    # Symlink lives inside data/, so the target must not carry the
+    # data/ prefix: ln resolves relative paths against the link's dir.
     link_latest = ExecuteProcess(
-        cmd=['ln', '-sfn', bag_out, 'data/step_test_latest'],
+        cmd=['bash', '-c', 'ln -sfn "${1#data/}" data/step_test_latest',
+             '_', bag_out],
         output='screen',
     )
 
