@@ -113,7 +113,8 @@ class CmdVelSerial(Node):
         self.latest = Twist()
         self.rx_buf = b''
         self.counts = {name: 0 for name in ENCODER_NAMES}
-        self.enc_seen = set()  # wheels that have reported at least once
+        self.enc_seen = set()     # wheels that have reported at least once
+        self.enc_primed = set()   # wheels whose baseline is initialized
         self.encoder_pub = self.create_publisher(EncoderCounts, '/encoder', 10)
         self.wheel_speeds_pub = self.create_publisher(
             WheelSpeeds, '/wheel_speeds', 10)
@@ -229,10 +230,13 @@ class CmdVelSerial(Node):
         if dt <= 0:
             return
         for name in ENCODER_NAMES:
-            if name not in self.enc_seen:
-                # Prime baseline on first line from this wheel: computing
-                # a delta from 0 spikes the EMA with the absolute count.
+            if name not in self.enc_primed:
+                # Prime baseline on first report from this wheel. Separate
+                # set from enc_seen: drain_encoders marks seen this same
+                # tick, so a seen-check here would never prime and the
+                # first delta would be the absolute count.
                 self.last_counts[name] = self.counts[name]
+                self.enc_primed.add(name)
                 continue
             # ponytail: no int32 wrap handling; wraps after ~4M revs.
             delta = self.counts[name] - self.last_counts[name]
