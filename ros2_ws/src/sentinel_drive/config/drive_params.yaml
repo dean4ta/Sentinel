@@ -21,7 +21,7 @@ cmd_vel_serial:
     ff_deadband_rpm: 14.0   # feedforward target below this -> 0
     ff_gain: 1.17
     fl_kp: 0.001
-    fl_ki: 0.0
+    fl_ki: 0.1
     fl_kd: 0.0
     fr_kp: 0.005
     fr_ki: 0.0
