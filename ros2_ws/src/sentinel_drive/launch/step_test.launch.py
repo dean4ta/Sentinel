@@ -1,0 +1,55 @@
+# One-command step test: starts cmd_vel_serial, starts rosbag recording,
+# then (2 s later, once the bag is listening) runs the step test node.
+# The delay keeps every step's data in the bag from t=0.
+#
+# Usage (from repo root, robot on blocks):
+#   ros2 launch sentinel_drive step_test.launch.py \
+#       wheel:=FL steps:="0.2,5;0.5,10;1.0,5;0,1;-1.0,10"
+#
+# Ctrl-C after the test node prints "all steps done" — the bag stops
+# with the launch.
+
+from datetime import datetime
+
+from launch import LaunchDescription
+from launch.actions import ExecuteProcess, TimerAction
+from launch.substitutions import FindPackageShare, LaunchConfiguration
+from launch_ros.actions import Node
+
+SHARE = FindPackageShare('sentinel_drive')
+
+
+def generate_launch_description():
+    wheel = LaunchConfiguration('wheel', default='FL')
+    steps = LaunchConfiguration(
+        'steps', default='0.2,5;0.5,10;1.0,5;0,1;-1.0,10')
+    bag_out = LaunchConfiguration(
+        'bag_out',
+        default='data/step_test_' + datetime.now().strftime('%Y-%m-%d_%H%M'))
+
+    serial_node = Node(
+        package='sentinel_drive',
+        executable='cmd_vel_serial',
+        name='cmd_vel_serial',
+        parameters=[SHARE + '/config/drive_params.yaml'],
+        output='screen',
+    )
+
+    bag = ExecuteProcess(
+        cmd=['ros2', 'bag', 'record', '/wheel_speeds', '/encoder',
+             '-o', bag_out],
+        output='screen',
+    )
+
+    test_node = TimerAction(
+        period=2.0,  # let the bag start listening before step 1
+        actions=[Node(
+            package='sentinel_drive',
+            executable='speed_step_test',
+            name='speed_step_test',
+            arguments=[wheel, steps],
+            output='screen',
+        )],
+    )
+
+    return LaunchDescription([serial_node, bag, test_node])

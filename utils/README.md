@@ -15,25 +15,30 @@ pip install rosbags matplotlib
 
 ## Workflow
 
-1. Start `cmd_vel_serial` (gamepad launch or standalone).
-2. Record while a step test runs:
+1. One launch does everything — serial gateway, rosbag recording, step
+   test (bag starts 2 s before the test node, so step 1 lands at t=0):
 
    ```bash
+   cd ~/dean/Sentinel/ros2_ws && source install/setup.bash
    cd ~/dean/Sentinel
-   mkdir -p data
-   ros2 bag record /wheel_speeds /encoder -o data/step_test_FL_$(date +%Y-%m-%d)
+   ros2 launch sentinel_drive step_test.launch.py \
+       wheel:=FL steps:="0.2,5;0.5,10;1.0,5;0,1;-1.0,10"
    ```
 
-3. Extract + plot:
+   Ctrl-C after the test node prints "all steps done". Bag lands in
+   `data/step_test_<timestamp>`.
+
+2. Extract + plot:
 
    ```bash
    cd utils && source .venv/bin/activate
-   python analyze_step_test.py ../data/step_test_FL_2026-09-24 --wheel FL -o ../data/fl_step.png
+   python analyze_step_test.py ../data/step_test_2026-09-24_1430 \
+       --wheel FL -o ../data/fl_step.png
    ```
 
    Output PNG: target rpm vs measured rpm over time, for the one wheel.
 
-4. Adjust `fl_kp/ki/kd` (etc.) in `ros2_ws/src/sentinel_drive/config/drive_params.yaml`, rebuild, rerun.
+3. Adjust `fl_kp/ki/kd` (etc.) in `ros2_ws/src/sentinel_drive/config/drive_params.yaml`, rebuild, rerun.
 
 ## Scripts
 
