@@ -68,12 +68,14 @@ def _clamp(v):
 
 
 class WheelPID:
-    """Per-wheel speed PID: error in rpm -> normalized PWM output [-1,1]."""
+    """Per-wheel speed PID: error in rpm -> normalized PWM output
+    [-out_max, out_max]."""
 
-    def __init__(self, kp, ki, kd):
+    def __init__(self, kp, ki, kd, out_max):
         self.kp = kp
         self.ki = ki
         self.kd = kd
+        self.out_max = out_max
         self.integral = 0.0
         self.prev_error = 0.0
 
@@ -81,12 +83,12 @@ class WheelPID:
         if dt <= 0:
             return 0.0
         self.integral += error * dt
-        # Anti-windup: integral term limited to ±1 of output authority.
-        self.integral = _clamp(self.integral)
+        # Anti-windup: integral term limited to ±out_max of authority.
+        self.integral = max(-self.out_max, min(self.out_max, self.integral))
         deriv = (error - self.prev_error) / dt
         self.prev_error = error
         out = self.kp * error + self.ki * self.integral + self.kd * deriv
-        return _clamp(out)
+        return max(-self.out_max, min(self.out_max, out))
 
 
 class CmdVelSerial(Node):
@@ -121,15 +123,18 @@ class CmdVelSerial(Node):
         self.last_wheel_cmd = self.get_clock().now()
 
         # Per-wheel speed controllers + feedback state.
+        self.declare_parameter('pid_output_limit', 0.3)
+        out_max = self.get_parameter('pid_output_limit').value
         self.pids = {}
         for name in ENCODER_NAMES:
-            self.declare_parameter(f'{name.lower()}_kp', 0.01)
+            self.declare_parameter(f'{name.lower()}_kp', 0.005)
             self.declare_parameter(f'{name.lower()}_ki', 0.0)
             self.declare_parameter(f'{name.lower()}_kd', 0.0)
             self.pids[name] = WheelPID(
                 self.get_parameter(f'{name.lower()}_kp').value,
                 self.get_parameter(f'{name.lower()}_ki').value,
-                self.get_parameter(f'{name.lower()}_kd').value)
+                self.get_parameter(f'{name.lower()}_kd').value,
+                out_max)
         self.measured_rpm = {name: 0.0 for name in ENCODER_NAMES}
         self.last_counts = {name: 0 for name in ENCODER_NAMES}
         now = self.get_clock().now()
