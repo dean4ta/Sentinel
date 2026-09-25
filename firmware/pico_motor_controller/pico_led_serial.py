@@ -67,9 +67,10 @@ neutral_all()
 
 # -------------------- Quadrature encoders --------------------
 #
-# goBILDA 5203 (19.2:1) encoders: 537.7 PPR at the output shaft (one PPR
-# = one full A-cycle). 4x decoding counts every valid A/B transition,
-# so 4 * 537.7 = ~2150.8 decoded counts per output-shaft revolution.
+# goBILDA 5203 (19.2:1) encoders: 537.7 counts per output-shaft
+# revolution after 4x decode (7 CPR motor-shaft encoder x 4x edges x
+# 19.2:1 = 537.6). Verified empirically 2026-09-24: 20 hand-spun wheel
+# revolutions measured ~10,653 counts (532.7/rev, within 1% of spec).
 #
 # Decode: interrupt-driven, 2-bit state table (state = (A<<1)|B). Each
 # encoder has its own IRQ handler closure: an edge on FR pins decodes FR
