@@ -81,17 +81,21 @@ def plot(ts, targets, measured, cmds, enc_ts, counts, wheel, out_path):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
+    RPM_TO_MPS = 0.44 / 60.0  # nominal 140 mm wheel circumference
     t0 = ts[0]
     t = [(x - t0) / 1e9 for x in ts]
     enc_t = [(x - t0) / 1e9 for x in enc_ts]
+    targets = [v * RPM_TO_MPS for v in targets]
+    cmds = [v * RPM_TO_MPS for v in cmds]
+    measured = [v * RPM_TO_MPS for v in measured]
 
     fig, (ax_rpm, ax_cnt) = plt.subplots(
         2, 1, figsize=(12, 8), sharex=True)
-    ax_rpm.plot(t, targets, label='target rpm', drawstyle='steps-post',
+    ax_rpm.plot(t, targets, label='target m/s', drawstyle='steps-post',
                 alpha=0.5)
-    ax_rpm.plot(t, cmds, label='commanded rpm', alpha=0.5)
-    ax_rpm.plot(t, measured, label='measured rpm', alpha=0.8)
-    ax_rpm.set_ylabel('rpm')
+    ax_rpm.plot(t, cmds, label='commanded m/s', alpha=0.5)
+    ax_rpm.plot(t, measured, label='measured m/s', alpha=0.8)
+    ax_rpm.set_ylabel('m/s')
     ax_rpm.set_title(f'{wheel} step response')
     ax_rpm.legend()
     ax_rpm.grid(True, alpha=0.3)
