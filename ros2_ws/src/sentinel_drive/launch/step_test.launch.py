@@ -32,7 +32,7 @@ def generate_launch_description():
         package='sentinel_drive',
         executable='cmd_vel_serial',
         name='cmd_vel_serial',
-        parameters=[SHARE + '/config/drive_params.yaml'],
+        parameters=[[SHARE, '/config/drive_params.yaml']],
         output='screen',
     )
 
