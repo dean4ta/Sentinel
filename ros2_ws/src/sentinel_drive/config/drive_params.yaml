@@ -23,12 +23,12 @@ cmd_vel_serial:
     fl_kp: 0.001
     fl_ki: 0.001
     fl_kd: 0.00001
-    fr_kp: 0.005
-    fr_ki: 0.0
-    fr_kd: 0.0
-    bl_kp: 0.005
-    bl_ki: 0.0
-    bl_kd: 0.0
-    br_kp: 0.005
-    br_ki: 0.0
-    br_kd: 0.0
+    fr_kp: 0.001
+    fr_ki: 0.001
+    fr_kd: 0.00001
+    bl_kp: 0.001
+    bl_ki: 0.001
+    bl_kd: 0.00001
+    br_kp: 0.001
+    br_ki: 0.001
+    br_kd: 0.00001
