@@ -13,7 +13,7 @@ import argparse
 import sys
 
 from rosbags.rosbag2 import Reader
-from rosbags.typesys import Stores, get_typestore
+from rosbags.typesys import Stores, get_typestore, get_types_from_msg
 
 MSGTYPE = 'sentinel_msgs/msg/WheelSpeeds'
 
@@ -36,7 +36,7 @@ MEASURED_FIELDS = {'FL': 'fl_measured_rpm', 'FR': 'fr_measured_rpm',
 
 def extract(bag_dir, wheel):
     typestore = get_typestore(Stores.ROS2_HUMBLE)
-    typestore.register({MSGTYPE: MSGDEF})
+    typestore.register(get_types_from_msg(MSGDEF, MSGTYPE))
 
     ts = []
     targets = []
