@@ -14,9 +14,7 @@ ros2_ws/log/
 # Python
 __pycache__/
 *.pyc
-weekly_report/WeeklyReport1.pdf
-weekly_report/week1_gantt_chart.png
-weekly_report/week-of-09-16.md
+weekly_report/*
 
 # Tuning test data (rosbags + plots), repo-root data/
 data/
