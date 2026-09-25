@@ -24,6 +24,7 @@ setup(
             'gamepad_twist = sentinel_drive.gamepad_twist:main',
             'cmd_vel_serial = sentinel_drive.cmd_vel_serial:main',
             'wheel_debug = sentinel_drive.wheel_debug:main',
+            'speed_step_test = sentinel_drive.speed_step_test:main',
         ],
     },
 )

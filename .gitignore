@@ -17,3 +17,6 @@ __pycache__/
 weekly_report/WeeklyReport1.pdf
 weekly_report/week1_gantt_chart.png
 weekly_report/week-of-09-16.md
+
+# Tuning test data (rosbags + plots), repo-root data/
+data/

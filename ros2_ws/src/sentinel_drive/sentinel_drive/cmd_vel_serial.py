@@ -27,7 +27,7 @@ import rclpy.duration
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
-from sentinel_msgs.msg import EncoderCounts
+from sentinel_msgs.msg import EncoderCounts, WheelSpeeds
 
 ENCODER_NAMES = ('FL', 'FR', 'BL', 'BR')
 
@@ -112,6 +112,8 @@ class CmdVelSerial(Node):
         self.rx_buf = b''
         self.counts = {name: 0 for name in ENCODER_NAMES}
         self.encoder_pub = self.create_publisher(EncoderCounts, '/encoder', 10)
+        self.wheel_speeds_pub = self.create_publisher(
+            WheelSpeeds, '/wheel_speeds', 10)
 
         # Per-wheel debug state: /wheel_cmd overrides /cmd_vel while fresh.
         self.mode = 'twist'  # 'twist' or 'wheels'
@@ -216,6 +218,18 @@ class CmdVelSerial(Node):
             self.last_counts[name] = self.counts[name]
         self.last_enc_time = now
 
+    def publish_wheel_speeds(self, targets):
+        msg = WheelSpeeds()
+        msg.fl_target_rpm = float(targets['FL'])
+        msg.fr_target_rpm = float(targets['FR'])
+        msg.bl_target_rpm = float(targets['BL'])
+        msg.br_target_rpm = float(targets['BR'])
+        msg.fl_measured_rpm = self.measured_rpm['FL']
+        msg.fr_measured_rpm = self.measured_rpm['FR']
+        msg.bl_measured_rpm = self.measured_rpm['BL']
+        msg.br_measured_rpm = self.measured_rpm['BR']
+        self.wheel_speeds_pub.publish(msg)
+
     def send_latest(self):
         now = self.get_clock().now()
 
@@ -249,6 +263,8 @@ class CmdVelSerial(Node):
             cmds[name] = self.pids[name].update(error, dt)
             if enc_stale:
                 cmds[name] = 0.0
+
+        self.publish_wheel_speeds(targets)
 
         fl = cmds['FL'] * WHEEL_DIRECTIONS['FL']
         fr = cmds['FR'] * WHEEL_DIRECTIONS['FR']
