@@ -10,7 +10,9 @@ is registered locally so no ROS install is needed.
 """
 
 import argparse
+import re
 import sys
+from pathlib import Path
 
 from rosbags.rosbag2 import Reader
 from rosbags.typesys import Stores, get_typestore, get_types_from_msg
@@ -76,6 +78,20 @@ def extract(bag_dir, wheel):
     return ts, targets, measured, cmds, enc_ts, counts
 
 
+def load_params():
+    """Best-effort parse of drive_params.yaml for the plot subtitle."""
+    path = Path(__file__).resolve().parent.parent / \
+        'ros2_ws/src/sentinel_drive/config/drive_params.yaml'
+    params = {}
+    if not path.exists():
+        return params
+    for line in path.read_text().splitlines():
+        m = re.match(r'^\s{4}(\w+):\s*([^#\s]+)', line)
+        if m:
+            params[m.group(1)] = m.group(2)
+    return params
+
+
 def plot(ts, targets, measured, cmds, enc_ts, counts, wheel, out_path):
     import matplotlib
     matplotlib.use('Agg')
@@ -91,6 +107,15 @@ def plot(ts, targets, measured, cmds, enc_ts, counts, wheel, out_path):
 
     fig, (ax_rpm, ax_cnt) = plt.subplots(
         2, 1, figsize=(12, 8), sharex=True)
+    params = load_params()
+    w = wheel.lower()
+    fig.suptitle(
+        f"kp={params.get(w + '_kp', '?')}, "
+        f"ki={params.get(w + '_ki', '?')}, "
+        f"kd={params.get(w + '_kd', '?')}  |  "
+        f"output_limit={params.get('output_limit', '?')}, "
+        f"ema_alpha={params.get('rpm_ema_alpha', '?')}",
+        fontsize=9)
     ax_rpm.plot(t, targets, label='target m/s', drawstyle='steps-post',
                 alpha=0.5)
     ax_rpm.plot(t, cmds, label='commanded m/s', alpha=0.5)
@@ -107,7 +132,7 @@ def plot(ts, targets, measured, cmds, enc_ts, counts, wheel, out_path):
     ax_cnt.legend()
     ax_cnt.grid(True, alpha=0.3)
 
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.savefig(out_path, dpi=150)
     print(f'wrote {out_path}')
 
