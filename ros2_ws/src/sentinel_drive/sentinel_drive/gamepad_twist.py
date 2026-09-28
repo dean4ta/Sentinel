@@ -26,11 +26,13 @@ class GamepadTwist(Node):
 
         self.declare_parameter('deadzone', 0.05)
         self.declare_parameter('invert_strafe', False)
+        self.declare_parameter('invert_rotate', False)
         self.declare_parameter('rotate_limit', 2.5)  # rad/s
         self.declare_parameter('speed_scale', 1.0)
 
         self.dz = self.get_parameter('deadzone').value
         self.invert_strafe = self.get_parameter('invert_strafe').value
+        self.invert_rotate = self.get_parameter('invert_rotate').value
         self.rotate_limit = self.get_parameter('rotate_limit').value
         self.speed_scale = min(
             1.0, max(0.0, self.get_parameter('speed_scale').value))
@@ -41,6 +43,7 @@ class GamepadTwist(Node):
         self.get_logger().info(
             f'Publishing /cmd_vel. deadzone={self.dz}, '
             f'invert_strafe={self.invert_strafe}, '
+            f'invert_rotate={self.invert_rotate}, '
             f'rotate_limit={self.rotate_limit}, '
             f'speed_scale={self.speed_scale}'
         )
@@ -65,6 +68,8 @@ class GamepadTwist(Node):
             twist.linear.y = -twist.linear.y
         twist.angular.z = max(
             -self.rotate_limit, min(self.rotate_limit, twist.angular.z))
+        if self.invert_rotate:
+            twist.angular.z = -twist.angular.z
 
         twist.linear.x *= self.speed_scale
         twist.linear.y *= self.speed_scale

@@ -2,6 +2,7 @@ gamepad_twist:
   ros__parameters:
     deadzone: 0.05
     invert_strafe: false
+    invert_rotate: false
     rotate_limit: 1.5   # rad/s, full-stick rotate ceiling
     speed_scale: 0.25
 
@@ -9,6 +10,14 @@ cmd_vel_serial:
   ros__parameters:
     serial_port: /dev/sentinel_pico
     baud: 460800
+
+    # Mecanum IK: ik_wheelbase_m = half-track + half-wheelbase (m),
+    # measure on the robot. ik_roller_swap flips the strafe+rotate
+    # wheel terms if the diagonal roller pairing differs from the
+    # assumed layout (symptom: strafe stick rotates the robot).
+    ik_wheelbase_m: 0.35
+    ik_roller_swap: false
+    
     publish_rate: 50.0
     rpm_ema_alpha: 0.2      # EMA blend for measured rpm (0.3-0.5 typical)
     pid_enabled: true       # PID block enable, independent of feed-forward

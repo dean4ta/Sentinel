@@ -67,10 +67,6 @@ ENC_DIRECTIONS = {'FL': -1.0, 'FR': 1.0, 'BL': -1.0, 'BR': 1.0}
 ENC_STALE_S = 0.25
 
 
-def _clamp(v):
-    return max(-1.0, min(1.0, v))
-
-
 class WheelPID:
     """Per-wheel speed PID: error in rpm -> normalized PWM output
     [-out_max, out_max]."""
@@ -140,6 +136,18 @@ class CmdVelSerial(Node):
         # of pid_enabled; kS/kV are per-wheel.
         self.declare_parameter('feed_forward_enabled', True)
         self.ff_enabled = self.get_parameter('feed_forward_enabled').value
+        # Mecanum IK geometry. ik_wheelbase_m = half-track + half-
+        # wheelbase (m): converts rad/s rotation to wheel surface speed.
+        # Measure on the robot: half the distance between left/right
+        # wheel centers plus half between front/back.
+        self.declare_parameter('ik_wheelbase_m', 0.35)
+        self.ik_wheelbase_m = self.get_parameter('ik_wheelbase_m').value
+        # Mecanum rollers can be assembled with either diagonal pairing;
+        # the wrong assumption turns strafe into rotation and vice versa.
+        # If strafe/rotate come out swapped, flip this instead of
+        # editing the IK.
+        self.declare_parameter('ik_roller_swap', False)
+        self.ik_roller_swap = self.get_parameter('ik_roller_swap').value
         self.pids = {}
         self.kS = {}
         self.kV = {}
@@ -308,10 +316,24 @@ class CmdVelSerial(Node):
         if self.mode == 'wheels':
             targets = self.wheel_targets
         else:
-            # Forward drive only: same target rpm to all wheels.
-            # TODO: full mecanum inverse kinematics (strafe, rotate).
-            fwd = _clamp(self.latest.linear.x / V_MAX_LINEAR_MPS)
-            targets = {name: fwd * WHEEL_MAX_RPM for name in ENCODER_NAMES}
+            # Mecanum IK (x forward, y left, CCW positive): twist ->
+            # per-wheel surface speeds (m/s), then scaled together so no
+            # wheel exceeds full speed while direction ratios are kept.
+            vx = self.latest.linear.x
+            vy = self.latest.linear.y
+            w = self.latest.angular.z * self.ik_wheelbase_m
+            if self.ik_roller_swap:
+                vy = -vy
+                w = -w
+            fl = vx - vy - w
+            fr = vx + vy + w
+            bl = vx + vy - w
+            br = vx - vy + w
+            m = max(V_MAX_LINEAR_MPS,
+                    max(abs(fl), abs(fr), abs(bl), abs(br)))
+            k = WHEEL_MAX_RPM / m
+            targets = {'FL': fl * k, 'FR': fr * k,
+                       'BL': bl * k, 'BR': br * k}
 
         dt = (now - self.last_pid_time).nanoseconds / 1e9
         self.last_pid_time = now

@@ -1,3 +1,4 @@
  - [x] ~~make a udev rule for the pico~~ done - see pico_usage.md
  - [ ] tune angular velocity — V_MAX_ANGULAR_RADPS (5.0) wrong: 0.5 rad/s cmd turned full circle in 2-3 s. Timed max-rotate test, set constant.
  - [ ] Investigate why the pico cuts out when the wheels spin fast. (~1 m/s for FL and ~1.5 m/s for FR)
+ - [ ] measure ik_wheelbase_m on the robot (half-track + half-wheelbase, m) and set in drive_params.yaml; rotation strength depends on it (default 0.35 is a guess)
