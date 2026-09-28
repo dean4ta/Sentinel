@@ -135,6 +135,7 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, wheel,
     ax_rpm.plot(t, cmds, label='commanded m/s', alpha=0.5)
     ax_rpm.plot(t, measured, label='measured m/s', alpha=0.8)
     ax_rpm.set_ylabel('m/s')
+    ax_rpm.set_ylim(-2.5, 2.5)
     ax_rpm.set_title(f'{wheel} step response')
     ax_rpm.legend()
     ax_rpm.grid(True, alpha=0.3)
