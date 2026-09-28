@@ -16,7 +16,7 @@ cmd_vel_serial:
     #   FF off, PID off -> open loop      FF on,  PID off -> ff only
     #   FF off, PID on  -> PID            FF on,  PID on  -> ff + PID
     # output then passes the per-wheel output limit.
-    feed_forward_enabled: true  # independently enables velocity feed-forward
+    feed_forward_enabled: true   # independently enables velocity feed-forward
 
     # Per-wheel sections. For each wheel:
     #   *_output_limit: cap on commanded PWM, PID and open-loop.
@@ -49,10 +49,10 @@ cmd_vel_serial:
     bl_kS: 0.11
     bl_kV: 0.97
 
-    # BR (back-right)
-    br_output_limit: 0.45
+    # BR (back-right)   ## LOCKED IN - Sept 28th, 2026 ##
+    br_output_limit: 0.60
     br_kp: 0.001
-    br_ki: 0.001
-    br_kd: 0.00001
-    br_kS: 0.05
-    br_kV: 0.85
+    br_ki: 0.0005
+    br_kd: 0.0
+    br_kS: 0.09
+    br_kV: 0.98
