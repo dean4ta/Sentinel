@@ -24,10 +24,14 @@ MSGDEF = (
     'float32 fr_target_rpm\n'
     'float32 bl_target_rpm\n'
     'float32 br_target_rpm\n'
-    'float32 fl_measured_rpm\n'
-    'float32 fr_measured_rpm\n'
-    'float32 bl_measured_rpm\n'
-    'float32 br_measured_rpm\n'
+    'float32 fl_measured_rpm_filtered\n'
+    'float32 fr_measured_rpm_filtered\n'
+    'float32 bl_measured_rpm_filtered\n'
+    'float32 br_measured_rpm_filtered\n'
+    'float32 fl_measured_rpm_raw\n'
+    'float32 fr_measured_rpm_raw\n'
+    'float32 bl_measured_rpm_raw\n'
+    'float32 br_measured_rpm_raw\n'
     'float32 fl_cmd_rpm\n'
     'float32 fr_cmd_rpm\n'
     'float32 bl_cmd_rpm\n'
@@ -36,8 +40,12 @@ MSGDEF = (
 
 TARGET_FIELDS = {'FL': 'fl_target_rpm', 'FR': 'fr_target_rpm',
                  'BL': 'bl_target_rpm', 'BR': 'br_target_rpm'}
-MEASURED_FIELDS = {'FL': 'fl_measured_rpm', 'FR': 'fr_measured_rpm',
-                   'BL': 'bl_measured_rpm', 'BR': 'br_measured_rpm'}
+MEASURED_FIELDS = {'FL': 'fl_measured_rpm_filtered',
+                   'FR': 'fr_measured_rpm_filtered',
+                   'BL': 'bl_measured_rpm_filtered',
+                   'BR': 'br_measured_rpm_filtered'}
+RAW_FIELDS = {'FL': 'fl_measured_rpm_raw', 'FR': 'fr_measured_rpm_raw',
+              'BL': 'bl_measured_rpm_raw', 'BR': 'br_measured_rpm_raw'}
 CMD_FIELDS = {'FL': 'fl_cmd_rpm', 'FR': 'fr_cmd_rpm',
               'BL': 'bl_cmd_rpm', 'BR': 'br_cmd_rpm'}
 COUNT_FIELDS = {'FL': 'fl', 'FR': 'fr', 'BL': 'bl', 'BR': 'br'}
@@ -60,6 +68,7 @@ def extract(bag_dir, wheel):
     ts = []
     targets = []
     measured = []
+    raw_meas = []
     cmds = []
     enc_ts = []
     counts = []
@@ -70,12 +79,13 @@ def extract(bag_dir, wheel):
                 ts.append(ts_)
                 targets.append(getattr(msg, TARGET_FIELDS[wheel]))
                 measured.append(getattr(msg, MEASURED_FIELDS[wheel]))
+                raw_meas.append(getattr(msg, RAW_FIELDS[wheel]))
                 cmds.append(getattr(msg, CMD_FIELDS[wheel]))
             elif conn.msgtype == ENC_MSGTYPE:
                 msg = typestore.deserialize_cdr(raw, conn.msgtype)
                 enc_ts.append(ts_)
                 counts.append(getattr(msg, COUNT_FIELDS[wheel]))
-    return ts, targets, measured, cmds, enc_ts, counts
+    return ts, targets, measured, raw_meas, cmds, enc_ts, counts
 
 
 def load_params():
@@ -92,7 +102,8 @@ def load_params():
     return params
 
 
-def plot(ts, targets, measured, cmds, enc_ts, counts, wheel, out_path):
+def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, wheel,
+         out_path):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -104,6 +115,7 @@ def plot(ts, targets, measured, cmds, enc_ts, counts, wheel, out_path):
     targets = [v * RPM_TO_MPS for v in targets]
     cmds = [v * RPM_TO_MPS for v in cmds]
     measured = [v * RPM_TO_MPS for v in measured]
+    raw_meas = [v * RPM_TO_MPS for v in raw_meas]
 
     fig, (ax_rpm, ax_cnt) = plt.subplots(
         2, 1, figsize=(12, 8), sharex=True)
@@ -116,6 +128,8 @@ def plot(ts, targets, measured, cmds, enc_ts, counts, wheel, out_path):
         f"output_limit={params.get(w + '_output_limit', '?')}, "
         f"ema_alpha={params.get('rpm_ema_alpha', '?')}",
         fontsize=9)
+    ax_rpm.plot(t, raw_meas, label='measured raw', color='tab:blue',
+                alpha=0.12, lw=0.8)
     ax_rpm.plot(t, targets, label='target m/s', drawstyle='steps-post',
                 alpha=0.5)
     ax_rpm.plot(t, cmds, label='commanded m/s', alpha=0.5)
@@ -144,12 +158,13 @@ def main():
     ap.add_argument('-o', '--out', required=True)
     args = ap.parse_args()
 
-    ts, targets, measured, cmds, enc_ts, counts = extract(args.bag_dir,
-                                                          args.wheel)
+    ts, targets, measured, raw_meas, cmds, enc_ts, counts = extract(
+        args.bag_dir, args.wheel)
     if not ts:
         print(f'no WheelSpeeds messages found in {args.bag_dir}', file=sys.stderr)
         raise SystemExit(1)
-    plot(ts, targets, measured, cmds, enc_ts, counts, args.wheel, args.out)
+    plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, args.wheel,
+         args.out)
 
 
 if __name__ == '__main__':

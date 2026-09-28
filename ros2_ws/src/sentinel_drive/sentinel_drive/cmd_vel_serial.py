@@ -159,6 +159,7 @@ class CmdVelSerial(Node):
             self.kS[name] = self.get_parameter(f'{name.lower()}_kS').value
             self.kV[name] = self.get_parameter(f'{name.lower()}_kV').value
         self.measured_rpm = {name: 0.0 for name in ENCODER_NAMES}
+        self.raw_rpm = {name: 0.0 for name in ENCODER_NAMES}
         self.last_counts = {name: 0 for name in ENCODER_NAMES}
         now = self.get_clock().now()
         self.last_enc_time = now
@@ -251,6 +252,7 @@ class CmdVelSerial(Node):
             # ponytail: no int32 wrap handling; wraps after ~4M revs.
             delta = self.counts[name] - self.last_counts[name]
             raw = delta * ENC_DIRECTIONS[name] * 60.0 / TICKS_PER_REV / dt
+            self.raw_rpm[name] = raw
             # EMA smooth: raw rpm quantizes to ~±11 rpm steps at low speed
             # (5 ticks per 20 ms at 27 rpm); filter before the PID sees it.
             self.measured_rpm[name] = (
@@ -265,10 +267,14 @@ class CmdVelSerial(Node):
         msg.fr_target_rpm = float(targets['FR'])
         msg.bl_target_rpm = float(targets['BL'])
         msg.br_target_rpm = float(targets['BR'])
-        msg.fl_measured_rpm = self.measured_rpm['FL']
-        msg.fr_measured_rpm = self.measured_rpm['FR']
-        msg.bl_measured_rpm = self.measured_rpm['BL']
-        msg.br_measured_rpm = self.measured_rpm['BR']
+        msg.fl_measured_rpm_filtered = self.measured_rpm['FL']
+        msg.fr_measured_rpm_filtered = self.measured_rpm['FR']
+        msg.bl_measured_rpm_filtered = self.measured_rpm['BL']
+        msg.br_measured_rpm_filtered = self.measured_rpm['BR']
+        msg.fl_measured_rpm_raw = self.raw_rpm['FL']
+        msg.fr_measured_rpm_raw = self.raw_rpm['FR']
+        msg.bl_measured_rpm_raw = self.raw_rpm['BL']
+        msg.br_measured_rpm_raw = self.raw_rpm['BR']
         # PID output is normalized PWM; convert back to rpm-equivalent so
         # the bag shows what was actually commanded to the wheel.
         msg.fl_cmd_rpm = cmds['FL'] * WHEEL_MAX_RPM
