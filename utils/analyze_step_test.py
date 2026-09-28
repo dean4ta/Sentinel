@@ -87,8 +87,10 @@ def compute_step_averages(events, enc_ts, counts, wheel):
         else:
             # Last step: ends at the final encoder sample (no end event).
             t1 = enc_ts[-1]
-        j0 = bisect.bisect_left(enc_ts, t0)
-        j1 = bisect.bisect_left(enc_ts, t1) - 1
+        # Trim 10 samples (~200 ms) from each side: accel/decel transients
+        # at step edges stay out of the average.
+        j0 = bisect.bisect_left(enc_ts, t0) + 10
+        j1 = bisect.bisect_left(enc_ts, t1) - 1 - 10
         if j1 <= j0:
             continue
         dt = (enc_ts[j1] - enc_ts[j0]) / 1e9
