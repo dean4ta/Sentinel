@@ -125,12 +125,10 @@ class CmdVelSerial(Node):
         self.last_wheel_cmd = self.get_clock().now()
 
         # Per-wheel speed controllers + feedback state.
-        self.declare_parameter('output_limit', 0.6)
         self.declare_parameter('rpm_ema_alpha', 0.4)
-        out_max = self.get_parameter('output_limit').value
         self.ema_alpha = self.get_parameter('rpm_ema_alpha').value
         # false = open-loop: target rpm mapped straight to PWM (still capped
-        # at output_limit). Startup-only; restart to toggle.
+        # at the per-wheel *_output_limit). Startup-only; restart to toggle.
         self.declare_parameter('pid_enabled', True)
         self.pid_enabled = self.get_parameter('pid_enabled').value
         # Feedforward from open-loop plant fit (see drive_params.yaml).
@@ -143,11 +141,13 @@ class CmdVelSerial(Node):
             self.declare_parameter(f'{name.lower()}_kp', 0.005)
             self.declare_parameter(f'{name.lower()}_ki', 0.0)
             self.declare_parameter(f'{name.lower()}_kd', 0.0)
+            self.declare_parameter(f'{name.lower()}_output_limit', 0.45)
             self.pids[name] = WheelPID(
                 self.get_parameter(f'{name.lower()}_kp').value,
                 self.get_parameter(f'{name.lower()}_ki').value,
                 self.get_parameter(f'{name.lower()}_kd').value,
-                out_max)
+                self.get_parameter(
+                    f'{name.lower()}_output_limit').value)
         self.measured_rpm = {name: 0.0 for name in ENCODER_NAMES}
         self.last_counts = {name: 0 for name in ENCODER_NAMES}
         now = self.get_clock().now()

@@ -10,12 +10,15 @@ cmd_vel_serial:
     serial_port: /dev/sentinel_pico
     baud: 460800
     publish_rate: 50.0
-    # Per-wheel speed PID gains (error in rpm -> normalized PWM). Defaults
-    # are conservative placeholders pending tuning.
-    output_limit: 0.45      # cap on commanded PWM, PID and open-loop
+    # Per-wheel speed PID gains (error in rpm -> normalized PWM).
+    # Per-wheel cap on commanded PWM, PID and open-loop.
+    fl_output_limit: 0.45
+    fr_output_limit: 0.50
+    bl_output_limit: 0.45
+    br_output_limit: 0.45
     rpm_ema_alpha: 0.2      # EMA blend for measured rpm (0.3-0.5 typical)
     pid_enabled: true       # false = open-loop: target rpm -> PWM directly
-                            # (still capped at output_limit)
+                            # (still capped at the *_output_limit)
     # Open-loop plant fit (FL, on blocks, 2026-09-25):
     # measured rpm ~ gain * (cmd_rpm - deadband_rpm) above deadband.
     ff_deadband_rpm: 14.0   # feedforward target below this -> 0

@@ -113,7 +113,7 @@ def plot(ts, targets, measured, cmds, enc_ts, counts, wheel, out_path):
         f"kp={params.get(w + '_kp', '?')}, "
         f"ki={params.get(w + '_ki', '?')}, "
         f"kd={params.get(w + '_kd', '?')}  |  "
-        f"output_limit={params.get('output_limit', '?')}, "
+        f"output_limit={params.get(w + '_output_limit', '?')}, "
         f"ema_alpha={params.get('rpm_ema_alpha', '?')}",
         fontsize=9)
     ax_rpm.plot(t, targets, label='target m/s', drawstyle='steps-post',
