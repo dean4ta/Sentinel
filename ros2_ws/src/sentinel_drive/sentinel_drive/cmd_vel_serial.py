@@ -1,7 +1,7 @@
 # /cmd_vel Twist <-> Pico serial gateway with per-wheel speed control.
 #
 # Control chain (per wheel):
-#   target speed (rpm) -> [ff: k_ff * target] + [PID (kp/ki/kd)]
+#   target speed (rpm) -> [ff: kS*sign(v_ref) + kV*v_ref] + [PID (kp/ki/kd)]
 #   -> per-wheel output limit -> normalized PWM [-1,1]
 #   -> Pico -> motor -> encoder feedback (counts -> measured rpm)
 #
@@ -135,25 +135,29 @@ class CmdVelSerial(Node):
         # at the per-wheel *_output_limit). Startup-only; restart to toggle.
         self.declare_parameter('pid_enabled', True)
         self.pid_enabled = self.get_parameter('pid_enabled').value
-        # Velocity feed-forward: independent block, k_ff * target, added
-        # to the PID output before the per-wheel output limit. Enabled
-        # independently of pid_enabled.
+        # Velocity feed-forward: independent block, added to the PID
+        # output before the per-wheel output limit. Enabled independently
+        # of pid_enabled; kS/kV are per-wheel.
         self.declare_parameter('feed_forward_enabled', True)
-        self.declare_parameter('k_ff', 1.15)
         self.ff_enabled = self.get_parameter('feed_forward_enabled').value
-        self.k_ff = self.get_parameter('k_ff').value
         self.pids = {}
+        self.kS = {}
+        self.kV = {}
         for name in ENCODER_NAMES:
             self.declare_parameter(f'{name.lower()}_kp', 0.005)
             self.declare_parameter(f'{name.lower()}_ki', 0.0)
             self.declare_parameter(f'{name.lower()}_kd', 0.0)
             self.declare_parameter(f'{name.lower()}_output_limit', 0.45)
+            self.declare_parameter(f'{name.lower()}_kS', 0.05)
+            self.declare_parameter(f'{name.lower()}_kV', 0.85)
             self.pids[name] = WheelPID(
                 self.get_parameter(f'{name.lower()}_kp').value,
                 self.get_parameter(f'{name.lower()}_ki').value,
                 self.get_parameter(f'{name.lower()}_kd').value,
                 self.get_parameter(
                     f'{name.lower()}_output_limit').value)
+            self.kS[name] = self.get_parameter(f'{name.lower()}_kS').value
+            self.kV[name] = self.get_parameter(f'{name.lower()}_kV').value
         self.measured_rpm = {name: 0.0 for name in ENCODER_NAMES}
         self.last_counts = {name: 0 for name in ENCODER_NAMES}
         now = self.get_clock().now()
@@ -273,6 +277,18 @@ class CmdVelSerial(Node):
         msg.br_cmd_rpm = cmds['BR'] * WHEEL_MAX_RPM
         self.wheel_speeds_pub.publish(msg)
 
+    def feed_forward(self, name, target):
+        """u_ff = kS * sign(v_ref) + kV * v_ref (v_ref normalized).
+
+        kS compensates static friction/deadband, kV the velocity gain.
+        Zero target -> zero ff (no creep).
+        """
+        v_ref = target / WHEEL_MAX_RPM
+        if v_ref == 0.0:
+            return 0.0
+        sign = 1.0 if v_ref > 0 else -1.0
+        return self.kS[name] * sign + self.kV[name] * v_ref
+
     def send_latest(self):
         now = self.get_clock().now()
 
@@ -304,9 +320,10 @@ class CmdVelSerial(Node):
         for name in ENCODER_NAMES:
             out_max = self.pids[name].out_max
             target = targets[name]
+            v_ref = target / WHEEL_MAX_RPM
             if self.pid_enabled:
                 # ff + PID, then per-wheel limit.
-                u_ff = (self.k_ff * target / WHEEL_MAX_RPM
+                u_ff = (self.feed_forward(name, target)
                         if self.ff_enabled else 0.0)
                 error = target - self.measured_rpm[name]
                 cmd = u_ff + self.pids[name].update(error, dt)
@@ -314,10 +331,10 @@ class CmdVelSerial(Node):
                 if enc_stale:
                     cmds[name] = 0.0
             else:
-                # PID off: open loop. ff on -> k_ff * target; ff off ->
-                # raw passthrough (target / WHEEL_MAX_RPM).
-                raw = target / WHEEL_MAX_RPM
-                u_ff = self.k_ff * raw if self.ff_enabled else raw
+                # PID off: open loop. ff on -> kS*sign + kV*v_ref;
+                # ff off -> raw passthrough (target / WHEEL_MAX_RPM).
+                u_ff = (self.feed_forward(name, target)
+                        if self.ff_enabled else v_ref)
                 cmds[name] = max(-out_max, min(out_max, u_ff))
 
         self.publish_wheel_speeds(targets, cmds)

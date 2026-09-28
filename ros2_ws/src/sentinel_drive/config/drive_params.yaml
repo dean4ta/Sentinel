@@ -10,12 +10,6 @@ cmd_vel_serial:
     serial_port: /dev/sentinel_pico
     baud: 460800
     publish_rate: 50.0
-    # Per-wheel speed PID gains (error in rpm -> normalized PWM).
-    # Per-wheel cap on commanded PWM, PID and open-loop.
-    fl_output_limit: 0.45
-    fr_output_limit: 0.50
-    bl_output_limit: 0.45
-    br_output_limit: 0.45
     rpm_ema_alpha: 0.2      # EMA blend for measured rpm (0.3-0.5 typical)
     pid_enabled: true       # PID block enable, independent of feed-forward
     # Velocity feed-forward, independent of the PID block:
@@ -23,19 +17,42 @@ cmd_vel_serial:
     #   FF off, PID on  -> PID            FF on,  PID on  -> ff + PID
     # output then passes the per-wheel output limit.
     feed_forward_enabled: true  # independently enables velocity feed-forward
-    k_ff: 1.15                  # feed-forward gain for normalized target
-                                # velocity: u_ff = k_ff * (target / WHEEL_MAX_RPM).
-                                # Initial value from measured open-loop
-                                # response. Negative targets -> negative ff.
+
+    # Per-wheel sections. For each wheel:
+    #   *_output_limit: cap on commanded PWM, PID and open-loop.
+    #   *_kp/ki/kd: PID gains, error in rpm -> normalized PWM.
+    #   *_kS, *_kV: feed-forward u_ff = kS * sign(v_ref) + kV * v_ref
+    #     (v_ref = target / WHEEL_MAX_RPM). kS compensates static
+    #     friction (deadband), kV the velocity gain.
+
+    # FL (front-left)
+    fl_output_limit: 0.45
     fl_kp: 0.001
     fl_ki: 0.001
     fl_kd: 0.00001
-    fr_kp: 0.004
-    fr_ki: 0.003
-    fr_kd: 0.00005
+    fl_kS: 0.05
+    fl_kV: 0.85
+
+    # FR (front-right)
+    fr_output_limit: 0.60
+    fr_kp: 0.0015
+    fr_ki: 0.1
+    fr_kd: 0.000025
+    fr_kS: 0.05
+    fr_kV: 0.85
+
+    # BL (back-left)
+    bl_output_limit: 0.45
     bl_kp: 0.001
     bl_ki: 0.001
     bl_kd: 0.00001
+    bl_kS: 0.05
+    bl_kV: 0.85
+
+    # BR (back-right)
+    br_output_limit: 0.45
     br_kp: 0.001
     br_ki: 0.001
     br_kd: 0.00001
+    br_kS: 0.05
+    br_kV: 0.85
