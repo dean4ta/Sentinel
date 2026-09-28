@@ -1,8 +1,12 @@
 # /cmd_vel Twist <-> Pico serial gateway with per-wheel speed control.
 #
 # Control chain (per wheel):
-#   target speed (rpm) -> PID (kp/ki/kd params) -> normalized PWM [-1,1]
+#   target speed (rpm) -> [ff: k_ff * target] + [PID (kp/ki/kd)]
+#   -> per-wheel output limit -> normalized PWM [-1,1]
 #   -> Pico -> motor -> encoder feedback (counts -> measured rpm)
+#
+# Feed-forward and PID are independent blocks: each has its own
+# enable/disable parameter; output = u_ff + pid_output, then limited.
 #
 # Writes: subscribes /cmd_vel and writes "fl,fr,bl,br\n" float wheel
 # commands (-1..1) to the Pico over USB serial at a fixed rate. The Pico
@@ -131,11 +135,13 @@ class CmdVelSerial(Node):
         # at the per-wheel *_output_limit). Startup-only; restart to toggle.
         self.declare_parameter('pid_enabled', True)
         self.pid_enabled = self.get_parameter('pid_enabled').value
-        # Feedforward from open-loop plant fit (see drive_params.yaml).
-        self.declare_parameter('ff_deadband_rpm', 14.0)
-        self.declare_parameter('ff_gain', 1.17)
-        self.ff_deadband = self.get_parameter('ff_deadband_rpm').value
-        self.ff_gain = self.get_parameter('ff_gain').value
+        # Velocity feed-forward: independent block, k_ff * target, added
+        # to the PID output before the per-wheel output limit. Enabled
+        # independently of pid_enabled.
+        self.declare_parameter('feed_forward_enabled', True)
+        self.declare_parameter('k_ff', 1.15)
+        self.ff_enabled = self.get_parameter('feed_forward_enabled').value
+        self.k_ff = self.get_parameter('k_ff').value
         self.pids = {}
         for name in ENCODER_NAMES:
             self.declare_parameter(f'{name.lower()}_kp', 0.005)
@@ -267,14 +273,6 @@ class CmdVelSerial(Node):
         msg.br_cmd_rpm = cmds['BR'] * WHEEL_MAX_RPM
         self.wheel_speeds_pub.publish(msg)
 
-    def feedforward(self, target_rpm):
-        """Deadband-compensated plant inverse: rpm -> normalized PWM."""
-        if abs(target_rpm) < self.ff_deadband:
-            return 0.0
-        sign = 1.0 if target_rpm >= 0 else -1.0
-        ff_rpm = sign * (self.ff_deadband + abs(target_rpm) / self.ff_gain)
-        return ff_rpm / WHEEL_MAX_RPM
-
     def send_latest(self):
         now = self.get_clock().now()
 
@@ -305,18 +303,22 @@ class CmdVelSerial(Node):
         cmds = {}
         for name in ENCODER_NAMES:
             out_max = self.pids[name].out_max
+            target = targets[name]
             if self.pid_enabled:
-                error = targets[name] - self.measured_rpm[name]
-                ff = self.feedforward(targets[name])
-                cmd = ff + self.pids[name].update(error, dt)
+                # ff + PID, then per-wheel limit.
+                u_ff = (self.k_ff * target / WHEEL_MAX_RPM
+                        if self.ff_enabled else 0.0)
+                error = target - self.measured_rpm[name]
+                cmd = u_ff + self.pids[name].update(error, dt)
                 cmds[name] = max(-out_max, min(out_max, cmd))
                 if enc_stale:
                     cmds[name] = 0.0
             else:
-                # Open-loop: raw passthrough (plant characterization),
-                # no feedforward, capped for safety.
-                raw = targets[name] / WHEEL_MAX_RPM
-                cmds[name] = max(-out_max, min(out_max, raw))
+                # PID off: open loop. ff on -> k_ff * target; ff off ->
+                # raw passthrough (target / WHEEL_MAX_RPM).
+                raw = target / WHEEL_MAX_RPM
+                u_ff = self.k_ff * raw if self.ff_enabled else raw
+                cmds[name] = max(-out_max, min(out_max, u_ff))
 
         self.publish_wheel_speeds(targets, cmds)
 

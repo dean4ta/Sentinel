@@ -17,12 +17,16 @@ cmd_vel_serial:
     bl_output_limit: 0.45
     br_output_limit: 0.45
     rpm_ema_alpha: 0.2      # EMA blend for measured rpm (0.3-0.5 typical)
-    pid_enabled: true       # false = open-loop: target rpm -> PWM directly
-                            # (still capped at the *_output_limit)
-    # Open-loop plant fit (FL, on blocks, 2026-09-25):
-    # measured rpm ~ gain * (cmd_rpm - deadband_rpm) above deadband.
-    ff_deadband_rpm: 14.0   # feedforward target below this -> 0
-    ff_gain: 1.17
+    pid_enabled: true       # PID block enable, independent of feed-forward
+    # Velocity feed-forward, independent of the PID block:
+    #   FF off, PID off -> open loop      FF on,  PID off -> ff only
+    #   FF off, PID on  -> PID            FF on,  PID on  -> ff + PID
+    # output then passes the per-wheel output limit.
+    feed_forward_enabled: true  # independently enables velocity feed-forward
+    k_ff: 1.15                  # feed-forward gain for normalized target
+                                # velocity: u_ff = k_ff * (target / WHEEL_MAX_RPM).
+                                # Initial value from measured open-loop
+                                # response. Negative targets -> negative ff.
     fl_kp: 0.001
     fl_ki: 0.001
     fl_kd: 0.00001
