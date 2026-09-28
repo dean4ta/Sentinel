@@ -23,9 +23,9 @@ cmd_vel_serial:
     fl_kp: 0.001
     fl_ki: 0.001
     fl_kd: 0.00001
-    fr_kp: 0.001
-    fr_ki: 0.001
-    fr_kd: 0.00001
+    fr_kp: 0.004
+    fr_ki: 0.003
+    fr_kd: 0.00005
     bl_kp: 0.001
     bl_ki: 0.001
     bl_kd: 0.00001
