@@ -121,10 +121,19 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, wheel,
         2, 1, figsize=(12, 8), sharex=True)
     params = load_params()
     w = wheel.lower()
+    if params.get('pid_enabled', 'true') == 'true':
+        pid_txt = (f"kp={params.get(w + '_kp', '?')}, "
+                   f"ki={params.get(w + '_ki', '?')}, "
+                   f"kd={params.get(w + '_kd', '?')}")
+    else:
+        pid_txt = 'PID disabled'
+    if params.get('feed_forward_enabled', 'true') == 'true':
+        ff_txt = (f"kS={params.get(w + '_kS', '?')}, "
+                  f"kV={params.get(w + '_kV', '?')}")
+    else:
+        ff_txt = 'FF disabled'
     fig.suptitle(
-        f"kp={params.get(w + '_kp', '?')}, "
-        f"ki={params.get(w + '_ki', '?')}, "
-        f"kd={params.get(w + '_kd', '?')}  |  "
+        f"{pid_txt}  |  {ff_txt}  |  "
         f"output_limit={params.get(w + '_output_limit', '?')}, "
         f"ema_alpha={params.get('rpm_ema_alpha', '?')}",
         fontsize=9)
