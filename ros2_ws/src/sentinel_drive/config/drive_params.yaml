@@ -25,13 +25,13 @@ cmd_vel_serial:
     #     (v_ref = target / WHEEL_MAX_RPM). kS compensates static
     #     friction (deadband), kV the velocity gain.
 
-    # FL (front-left)
+    # FL (front-left)   ## LOCKED IN - Sept 28th, 2026 ##
     fl_output_limit: 0.45
     fl_kp: 0.001
-    fl_ki: 0.001
-    fl_kd: 0.00001
+    fl_ki: 0.0005
+    fl_kd: 0.0
     fl_kS: 0.05
-    fl_kV: 0.85
+    fl_kV: 0.90
 
     # FR (front-right)  ## LOCKED IN - Sept 28th, 2026 ##
     fr_output_limit: 0.60
