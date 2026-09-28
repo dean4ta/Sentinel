@@ -17,6 +17,7 @@ import sys
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
+from sentinel_msgs.msg import StepEvent
 
 WHEELS = ('FL', 'FR', 'BL', 'BR')
 WHEEL_CIRCUMFERENCE_M = 0.44  # nominal 140 mm mecanum wheel
@@ -48,6 +49,8 @@ class SpeedStepTest(Node):
         self.step_idx = 0
         self.step_start = self.get_clock().now()
         self.pub = self.create_publisher(String, '/wheel_cmd', 10)
+        self.event_pub = self.create_publisher(StepEvent, '/step_events', 10)
+        self._publish_event(0, self.steps[0][0])
         self.create_timer(0.05, self.tick)  # 20 Hz, within 0.5 s freshness
         self.get_logger().info(
             f'step test {self.wheel}: {steps} '
@@ -57,6 +60,13 @@ class SpeedStepTest(Node):
         msg = String()
         msg.data = f'{self.wheel} {rpm:.1f}'
         self.pub.publish(msg)
+
+    def _publish_event(self, index, mps, sine=False):
+        msg = StepEvent()
+        msg.index = index
+        msg.target_mps = mps
+        msg.sine = sine
+        self.event_pub.publish(msg)
 
     def tick(self):
         now = self.get_clock().now()
@@ -72,6 +82,7 @@ class SpeedStepTest(Node):
                 amp, period, dur = self.sine
                 self.get_logger().info(
                     f'sine: {amp} m/s amp, {period} s period, {dur} s')
+                self._publish_event(-1, 0.0, sine=True)
                 return
             self._send(0.0)
             self.get_logger().info('all steps done')
@@ -86,6 +97,7 @@ class SpeedStepTest(Node):
                 nxt, ndur = self.steps[self.step_idx]
                 self.get_logger().info(
                     f'step {self.step_idx}: {nxt} m/s for {ndur} s')
+                self._publish_event(self.step_idx, nxt)
 
         if self.step_idx < len(self.steps):
             speed, _ = self.steps[self.step_idx]

@@ -59,11 +59,52 @@ ENC_MSGDEF = (
     'int32 br\n'
 )
 
+STEP_MSGTYPE = 'sentinel_msgs/msg/StepEvent'
+
+STEP_MSGDEF = (
+    'int32 index\n'
+    'float32 target_mps\n'
+    'bool sine\n'
+)
+
+# Encoder count sign during forward motion (mirrored mounting).
+ENC_DIR = {'FL': -1.0, 'FR': 1.0, 'BL': -1.0, 'BR': 1.0}
+
+
+def compute_step_averages(events, enc_ts, counts, wheel):
+    """Average m/s per step from encoder count deltas between step
+    start/end timestamps. Skips the sine phase. Returns
+    [(t_start, t_end, avg_mps)] in ns timestamps."""
+    import bisect
+    avgs = []
+    step_events = [e for e in events if not e[3]]
+    n = len(step_events)
+    if n == 0 or not enc_ts:
+        return avgs
+    for i, (t0, idx, mps, sine) in enumerate(step_events):
+        if i + 1 < n:
+            t1 = step_events[i + 1][0]
+        else:
+            # Last step: ends at the final encoder sample (no end event).
+            t1 = enc_ts[-1]
+        j0 = bisect.bisect_left(enc_ts, t0)
+        j1 = bisect.bisect_left(enc_ts, t1) - 1
+        if j1 <= j0:
+            continue
+        dt = (enc_ts[j1] - enc_ts[j0]) / 1e9
+        if dt <= 0:
+            continue
+        dcounts = counts[j1] - counts[j0]
+        avg = dcounts / 532.0 * 0.44 / dt * ENC_DIR[wheel]
+        avgs.append((t0, t1, avg))
+    return avgs
+
 
 def extract(bag_dir, wheel):
     typestore = get_typestore(Stores.ROS2_HUMBLE)
     typestore.register(get_types_from_msg(MSGDEF, MSGTYPE))
     typestore.register(get_types_from_msg(ENC_MSGDEF, ENC_MSGTYPE))
+    typestore.register(get_types_from_msg(STEP_MSGDEF, STEP_MSGTYPE))
 
     ts = []
     targets = []
@@ -72,6 +113,7 @@ def extract(bag_dir, wheel):
     cmds = []
     enc_ts = []
     counts = []
+    events = []
     with Reader(bag_dir) as reader:
         for conn, ts_, raw in reader.messages():
             if conn.msgtype == MSGTYPE:
@@ -85,7 +127,11 @@ def extract(bag_dir, wheel):
                 msg = typestore.deserialize_cdr(raw, conn.msgtype)
                 enc_ts.append(ts_)
                 counts.append(getattr(msg, COUNT_FIELDS[wheel]))
-    return ts, targets, measured, raw_meas, cmds, enc_ts, counts
+            elif conn.msgtype == STEP_MSGTYPE:
+                msg = typestore.deserialize_cdr(raw, conn.msgtype)
+                events.append(
+                    (ts_, msg.index, msg.target_mps, msg.sine))
+    return ts, targets, measured, raw_meas, cmds, enc_ts, counts, events
 
 
 def load_params():
@@ -102,8 +148,8 @@ def load_params():
     return params
 
 
-def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, wheel,
-         out_path):
+def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
+         wheel, out_path):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -112,6 +158,7 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, wheel,
     t0 = ts[0]
     t = [(x - t0) / 1e9 for x in ts]
     enc_t = [(x - t0) / 1e9 for x in enc_ts]
+    t_base = t0
     targets = [v * RPM_TO_MPS for v in targets]
     cmds = [v * RPM_TO_MPS for v in cmds]
     measured = [v * RPM_TO_MPS for v in measured]
@@ -153,8 +200,21 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, wheel,
                 color='tab:green', alpha=0.8)
     ax_cnt.set_ylabel('ticks')
     ax_cnt.set_xlabel('time (s)')
-    ax_cnt.legend()
+    ax_cnt.legend(loc='upper left')
     ax_cnt.grid(True, alpha=0.3)
+
+    # Encoder-derived average speed per step, on a secondary axis.
+    avgs = compute_step_averages(events, enc_ts, counts, wheel)
+    if avgs:
+        ax_avg = ax_cnt.twinx()
+        for i, (t0, t1, avg) in enumerate(avgs):
+            ax_avg.plot([(t0 - t_base) / 1e9, (t1 - t_base) / 1e9],
+                        [avg, avg], color='tab:red', alpha=0.7, lw=1.5,
+                        label='avg m/s (encoder)' if i == 0 else None)
+        ax_avg.set_ylabel('avg m/s (encoder)')
+        ax_avg.set_ylim(-2.5, 2.5)
+        ax_avg.legend(loc='upper right')
+        ax_avg.grid(False)
 
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.savefig(out_path, dpi=150)
@@ -168,13 +228,13 @@ def main():
     ap.add_argument('-o', '--out', required=True)
     args = ap.parse_args()
 
-    ts, targets, measured, raw_meas, cmds, enc_ts, counts = extract(
+    ts, targets, measured, raw_meas, cmds, enc_ts, counts, events = extract(
         args.bag_dir, args.wheel)
     if not ts:
         print(f'no WheelSpeeds messages found in {args.bag_dir}', file=sys.stderr)
         raise SystemExit(1)
-    plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, args.wheel,
-         args.out)
+    plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
+         args.wheel, args.out)
 
 
 if __name__ == '__main__':
