@@ -208,9 +208,16 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
     if avgs:
         ax_avg = ax_cnt.twinx()
         for i, (t0, t1, avg) in enumerate(avgs):
-            ax_avg.plot([(t0 - t_base) / 1e9, (t1 - t_base) / 1e9],
-                        [avg, avg], color='tab:red', alpha=0.7, lw=1.5,
+            x0 = (t0 - t_base) / 1e9
+            x1 = (t1 - t_base) / 1e9
+            ax_avg.axvline(x0, color='tab:red', ls=':', alpha=0.5, lw=1)
+            ax_avg.axvline(x1, color='tab:red', ls=':', alpha=0.5, lw=1)
+            ax_avg.plot([x0, x1], [avg, avg], color='tab:red', alpha=0.7,
+                        lw=1.5,
                         label='avg m/s (encoder)' if i == 0 else None)
+            ax_avg.text((x0 + x1) / 2, avg, f'{avg:.2f}',
+                        ha='center', va='bottom', fontsize=8,
+                        color='tab:red', alpha=0.9)
         ax_avg.set_ylabel('avg m/s (encoder)')
         ax_avg.set_ylim(-2.5, 2.5)
         ax_avg.legend(loc='upper right')
