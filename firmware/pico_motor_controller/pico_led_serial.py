@@ -19,11 +19,26 @@
 #   BR <count>
 #
 # Failsafe: no valid motor command for 200 ms -> all channels neutral.
+# Watchdog: CPU wedged -> 500 ms WDT reset -> PWM floats (with pull-downs
+# on the level-shifter inputs the motors stop).
 # Only the newest complete line is applied per cycle.
 #
 # PWM: 50 Hz (20 ms period), RC-style 1000-2000 us, 1500 = neutral.
-from machine import Pin, PWM
+from machine import Pin, PWM, WDT
 import select, sys, time
+import micropython
+
+# A stray 0x03 (Ctrl-C) byte on stdin must not kill the script while
+# motors are spinning; interrupts stay off until reset.
+micropython.kbd_intr(-1)
+
+# Hardware watchdog: the main loop feeds it every pass. If the CPU
+# wedges (e.g. an IRQ storm) the Pico resets and the PWM pins float —
+# with pull-downs on the level-shifter inputs the motors stop. The WDT
+# survives a soft reset, so use `mpremote reset` or power-cycle to stop
+# the script.
+WDT_TIMEOUT_MS = 500
+wdt = WDT(timeout=WDT_TIMEOUT_MS)
 
 led = Pin(25, Pin.OUT)
 on_ms = 100  # default LED on-time: 10 x 10ms
@@ -242,6 +257,7 @@ led_on_phase = True
 phase_start_ms = time.ticks_ms()
 
 while True:
+    wdt.feed()
     now = time.ticks_ms()
 
     read_serial_newest_only()
