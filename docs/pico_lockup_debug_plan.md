@@ -61,23 +61,27 @@ Owner: Dean (firmware), hardware check at robot.
 Goal: determine whether the lockup is IRQ starvation (firmware) or an
 electrical fault (noise/latch-up). No instruments needed.
 
-- [ ] Test A: keep encoders wired, but disable all encoder IRQs after
-      registration (`p.irq(handler=None)`). Run wheels at high speed.
-      - Survives → IRQ starvation confirmed, latch-up mostly ruled out.
-      - Still hangs → electrical path (encoder supply, signal levels, ground
-        topology).
-- [ ] Test B: add an IRQ-callback counter per wheel, printed in the 50 Hz
-      report. At steady speed, callbacks/s ≈ |counts/s|. Ratio climbing with
-      speed = chatter, and it should spike just before a hang. Graph this.
-
-Owner: Dean writes instrumented firmware, user runs on robot.
+- [x] Test A: encoder activity as the wedge trigger already established —
+      unplug encoders → Pico survives high speed (pre-plan test). Plus the
+      2026-09-29 scope run: loop degraded in bursts (garbled report lines,
+      frozen LED) but kept running, WDT fed between stalls. IRQ starvation
+      confirmed as the mechanism; PIO fix supersedes this phase. (2026-09-29)
+- [~] Test B: superseded by the PIO rewrite (no IRQs left to count).
 
 ## Phase 2 — fixes
 
-- [ ] Firmware: move quadrature decode from IRQ callbacks to **PIO** (4 state
-      machines, zero interrupts). A/B pins are already consecutive pairs
-      (6/7, 8/9, 10/11, 12/13), which the standard PIO quadrature program
-      expects. Noise can then add bogus counts but can never freeze the CPU.
+- [x] Firmware: quadrature decode moved from IRQ callbacks to **PIO** (4 state
+      machines, zero CPU involvement) — canonical raspberrypi/pico-examples
+      program, `pico_led_serial.py` (2026-09-29). A/B pins are consecutive
+      pairs (6/7, 8/9, 10/11, 12/13) as the program expects. Noise can add
+      bogus counts but can never freeze the CPU. **Needs flash + robot
+      verification.**
+- [x] Firmware (Orin side): `cmd_vel_serial` staleness bug fixed — `last_enc_time`
+      was refreshed every 20 ms tick regardless of data, so (a) `enc_stale`
+      never fired (kept commanding -280 rpm through 2 s of encoder silence on
+      2026-09-29) and (b) velocity dt was always 20 ms, producing a fake
+      -1992 rpm spike when counts resumed. Now refreshed only on parsed data.
+      (2026-09-29)
 - [ ] Electrical: 1 kΩ series + 4.7 nF to ground at each Pico encoder pin
       (corner ≈ 34 kHz); 100 nF ceramic across each motor's terminals; 100 nF
       at encoder VCC/GND at the Pico end.
@@ -87,10 +91,12 @@ Owner: Dean writes instrumented firmware, user runs on robot.
 
 ## Phase 3 — verify
 
+- [ ] Flash PIO firmware, rerun the FR step test that wedged at -2.0 m/s
+      (bag `data/step_test_2026-09-29_1331`): encoder stream must stay
+      gap-free, no velocity spikes, LED blinking throughout.
 - [ ] Scope or 24 MHz+ logic analyzer on encoder A/B at the Pico pins, one
       capture just below and one just above the failure speed: edge quality,
       glitch bursts, plus the Pico 3V3 rail AC-coupled.
-- [ ] Confirm the Test B chatter ratio returns to ~1 after PIO + filtering.
 - [ ] High-speed floor drive: no freeze, watchdog silent, counts clean.
 
 ## Notes
@@ -100,3 +106,9 @@ Owner: Dean writes instrumented firmware, user runs on robot.
 - Prior observation (2026-09-24): single-wheel step tests above ~100 rpm were
   noisy but the Pico survived. The four-wheel floor case is ~4× the edge rate
   plus mechanical load → more brush noise. Consistent with the diagnosis.
+- 2026-09-29 bag analysis (`step_test_2026-09-29_1331`, FR): healthy encoder
+  stream through the -1.0 m/s step, wedge starts on the -2.0 m/s step
+  (13.3 s), 2-4 s report gaps through the sine phase. Garbled lines
+  (`BFLFL 0`) = soft IRQs tearing main-loop prints apart.
+- `mpremote reset` now fails by design while the script runs (`kbd_intr(-1)`
+  + WDT): "could not enter raw repl" is expected. Use power-cycle.

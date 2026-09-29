@@ -233,6 +233,11 @@ class CmdVelSerial(Node):
             self.enc_seen.add(parts[0])
             updated = True
         if updated:
+            # Only fresh data refreshes the staleness clock: encoder
+            # silence must let enc_stale force neutral PWM, and update_rpm
+            # uses this timestamp as its velocity dt (sparse data -> dt
+            # spans the gap, no 20 ms-divided spikes).
+            self.last_enc_time = self.get_clock().now()
             self.publish_counts()
 
     def publish_counts(self):
@@ -267,7 +272,6 @@ class CmdVelSerial(Node):
                 self.ema_alpha * raw
                 + (1.0 - self.ema_alpha) * self.measured_rpm[name])
             self.last_counts[name] = self.counts[name]
-        self.last_enc_time = now
 
     def publish_wheel_speeds(self, targets, cmds):
         msg = WheelSpeeds()

@@ -1,6 +1,6 @@
 # LED on-time + 4-wheel direct-drive PWM, controlled over USB serial.
-# Also reads 4x quadrature wheel encoders (interrupt-driven) and reports
-# counts over serial at ~50 Hz.
+# Also reads 4x quadrature wheel encoders (PIO, zero CPU involvement)
+# and reports counts over serial at ~50 Hz.
 #
 # Commands (one per line):
 #   NN                     -> LED on-time = NN * 10 ms, off 200 ms, repeat
@@ -19,22 +19,23 @@
 #   BR <count>
 #
 # Failsafe: no valid motor command for 200 ms -> all channels neutral.
-# Watchdog: CPU wedged -> 500 ms WDT reset -> PWM floats (with pull-downs
-# on the level-shifter inputs the motors stop).
+# Watchdog: CPU wedged -> 500 ms WDT reset -> PWM stops; the GoBilda
+# controller's own signal-loss failsafe stops the motors.
 # Only the newest complete line is applied per cycle.
 #
 # PWM: 50 Hz (20 ms period), RC-style 1000-2000 us, 1500 = neutral.
 from machine import Pin, PWM, WDT
 import select, sys, time
 import micropython
+import rp2
 
 # A stray 0x03 (Ctrl-C) byte on stdin must not kill the script while
 # motors are spinning; interrupts stay off until reset.
 micropython.kbd_intr(-1)
 
 # Hardware watchdog: the main loop feeds it every pass. If the CPU
-# wedges (e.g. an IRQ storm) the Pico resets and the PWM pins float —
-# with pull-downs on the level-shifter inputs the motors stop. The WDT
+# wedges, the Pico resets and the PWM pins stop pulsing; the GoBilda
+# controller's own signal-loss failsafe stops the motors. The WDT
 # survives a soft reset, so use `mpremote reset` or power-cycle to stop
 # the script.
 WDT_TIMEOUT_MS = 500
@@ -87,10 +88,61 @@ neutral_all()
 # 19.2:1 = 537.6). Verified empirically 2026-09-24: 20 hand-spun wheel
 # revolutions measured ~10,653 counts (532.7/rev, within 1% of spec).
 #
-# Decode: interrupt-driven, 2-bit state table (state = (A<<1)|B). Each
-# encoder has its own IRQ handler closure: an edge on FR pins decodes FR
-# only, never the other three. Handlers are a few instructions; if counts
-# ever drop at very high motor RPM the upgrade path is PIO.
+# Decode: PIO, zero CPU involvement. One state machine per encoder runs
+# the canonical RP2040 quadrature program (raspberrypi/pico-examples,
+# pio/quadrature_encoder): a 10-cycle loop samples both pins, keeps the
+# count in Y, and pushes it to the RX FIFO every loop. The main loop
+# drains each FIFO and keeps the newest absolute count. Encoder noise
+# can add bogus counts but can never starve the CPU (the 2026-09-29
+# lockup: soft-IRQ decode wedged under brush-noise chatter at speed).
+#
+# IMPORTANT: the program jumps through a computed table at absolute
+# addresses, so it must remain the ONLY asm_pio program in this file
+# and the first one loaded (MicroPython places it at instruction
+# offset 0).
+
+@rp2.asm_pio(out_shiftdir=rp2.PIO.SHIFT_RIGHT)
+def quadrature_encoder():
+    # Computed-jump table, addresses 0-15: rows = new pin state
+    # (A<<1)|B, entries = old state. Instruction order is part of the
+    # encoding -- do not reorder.
+    jmp("update")        # 00: read 00 -> no change
+    jmp("decrement")     #     read 01
+    jmp("increment")     #     read 10
+    jmp("update")        #     read 11
+
+    jmp("increment")     # 01: read 00
+    jmp("update")        #     read 01
+    jmp("update")        #     read 10
+    jmp("decrement")     #     read 11
+
+    jmp("decrement")     # 10: read 00
+    jmp("update")        #     read 01
+    jmp("update")        #     read 10
+    jmp("increment")     #     read 11
+
+    jmp("update")        # 11: read 00
+    jmp("increment")     #     read 01
+    label("decrement")
+    jmp(y_dec, "update")  #    read 10: Y--, re-enter the loop
+
+    wrap_target()
+    label("update")
+    mov(isr, y)          # 11: read 11 -> no change
+    push(noblock)
+
+    label("sample_pins")
+    out(isr, 2)
+    in_(pins, 2)
+    mov(osr, isr)
+    mov(pc, isr)
+
+    label("increment")
+    mov(y, invert(y))
+    jmp(y_dec, "increment_cont")
+    label("increment_cont")
+    mov(y, invert(y))
+    wrap()
 
 # Set to -1 to flip one encoder's sign without touching wiring.
 FL_ENCODER_DIRECTION = 1
@@ -109,58 +161,33 @@ _ENCODER_DEFS = (
 
 REPORT_MS = 20  # encoder report rate (50 Hz)
 
-# 4x decode table: delta for previous 2-bit state -> current 2-bit state.
-# Rows = previous state, columns = current state (both = (A<<1)|B).
-# Valid single-step transitions give +1/-1; impossible double-step
-# transitions (00<->11, 01<->10) give 0.
-_TRANSITION = (
-    (0, -1, 1, 0),    # from 00
-    (1, 0, 0, -1),    # from 01
-    (-1, 0, 0, 1),    # from 10
-    (0, 1, -1, 0),    # from 11
-)
-
-_ENC_A_PINS = []
-_ENC_B_PINS = []
+_ENC_COUNTS = [0, 0, 0, 0]
 _ENC_DIRS = []
-_ENC_COUNTS = []
-_ENC_STATES = []  # 2-bit state (A<<1)|B, latched before IRQs arm
+_SMS = []
 
-for _name, _a_gp, _b_gp, _dir in _ENCODER_DEFS:
+for i, (_name, _a_gp, _b_gp, _dir) in enumerate(_ENCODER_DEFS):
     _a_pin = Pin(_a_gp, Pin.IN, Pin.PULL_UP)
     _b_pin = Pin(_b_gp, Pin.IN, Pin.PULL_UP)
-    _ENC_A_PINS.append(_a_pin)
-    _ENC_B_PINS.append(_b_pin)
     _ENC_DIRS.append(_dir)
-    _ENC_COUNTS.append(0)
-    # Latch the actual A/B state BEFORE arming the IRQ so startup cannot
-    # produce a false count from the encoder's initial state.
-    _ENC_STATES.append((_a_pin.value() << 1) | _b_pin.value())
+    _sm = rp2.StateMachine(i, quadrature_encoder, in_base=_a_pin)
+    _sm.active(1)
+    _SMS.append(_sm)
 
 
-def _decode(i):
-    # Decode only encoder i: read its two pins, table-lookup the delta.
-    cur = (_ENC_A_PINS[i].value() << 1) | _ENC_B_PINS[i].value()
-    delta = _TRANSITION[_ENC_STATES[i]][cur]
-    if delta:
-        _ENC_COUNTS[i] += delta * _ENC_DIRS[i]
-    _ENC_STATES[i] = cur
-
-
-def _make_irq_handler(i):
-    # One handler per encoder: an edge on either of its pins decodes
-    # that encoder only. Stationary encoders are never touched.
-    def handler(pin):
-        _decode(i)
-    return handler
-
-
-for _i in range(4):
-    _handler = _make_irq_handler(_i)
-    _ENC_A_PINS[_i].irq(handler=_handler,
-                        trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING)
-    _ENC_B_PINS[_i].irq(handler=_handler,
-                        trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING)
+def poll_encoders():
+    # Drain each PIO FIFO, keep the newest absolute count. No IRQs:
+    # a noise storm just means stale or bogus numbers, never a wedged
+    # CPU. Y wraps at 2^31 steps (~4M revs), so the unsigned read is
+    # sign-restored.
+    for i, sm in enumerate(_SMS):
+        if not sm.rx_fifo():
+            continue
+        val = sm.get()
+        while sm.rx_fifo():
+            val = sm.get()
+        if val & 0x80000000:
+            val -= 0x100000000
+        _ENC_COUNTS[i] = val * _ENC_DIRS[i]
 
 
 def print_report():
@@ -227,9 +254,6 @@ def apply_line(line):
 current_line = ''
 newest_line = ''
 
-poll = select.poll()
-poll.register(sys.stdin, select.POLLIN)
-
 def read_serial_newest_only():
     global current_line, newest_line
     while sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
@@ -249,8 +273,8 @@ def read_serial_newest_only():
 # -------------------- Main loop --------------------
 #
 # Non-blocking: LED on/off phases are timestamp-based (visible behavior
-# unchanged: on for on_ms, off for 200 ms). Encoder counting is
-# IRQ-driven and unaffected by this loop.
+# unchanged: on for on_ms, off for 200 ms). Encoder counting happens in
+# PIO hardware and is unaffected by this loop.
 
 led.on()
 led_on_phase = True
@@ -258,6 +282,7 @@ phase_start_ms = time.ticks_ms()
 
 while True:
     wdt.feed()
+    poll_encoders()
     now = time.ticks_ms()
 
     read_serial_newest_only()
