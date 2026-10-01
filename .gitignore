@@ -19,3 +19,5 @@ weekly_report/*
 # Tuning test data (rosbags + plots), repo-root data/
 data/
 plots/
+utils/one_wheel_control_test.sh
+utils/sync_orin.sh
