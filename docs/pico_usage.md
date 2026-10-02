@@ -5,26 +5,16 @@ Pico runs MicroPython. Program deploys as `main.py` — runs automatically on bo
 ## From Orin
 
 ```bash
-cd ~/dean/Sentinel/firmware/pico_motor_controller
-python -m venv .venv  # First time - create virtual env if one doesn't already exist
-source .venv/bin/activate
-
-# find device — Pico is ttyACM*
-ls /dev/ttyACM*  # or
-ls /dev/sentinel_pico. # if udev rules are set
+cd firmware/pico_motor_controller
 ```
 
 Deploy (program auto-starts on next reset):
 
 ```bash
-mpremote connect /dev/ttyACM0 cp pico_led_serial.py :main.py
-mpremote connect /dev/ttyACM0 reset
-```
-
-Run without flashing (one-off test, Ctrl+C or kill to stop):
-
-```bash
-mpremote connect /dev/ttyACM0 run pico_led_serial.py
+cmake --build build
+# put pico into USEL mode by pressing button while turning on
+picotool load build/pico_motor_controller.uf2 -v
+picotool reboot
 ```
 
 ## Stable device path (udev)
