@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdbool.h>
 
 #include "pico/stdlib.h"
 #include "hardware/pwm.h"
@@ -19,6 +20,8 @@
 
 // Status LED
 #define LED_PIN 25
+#define LED_TICK_MS 250
+#define LED_OFF_TICKS 3
 
 // Encoder pins
 #define FR_ENC_A 6
@@ -336,29 +339,24 @@ static void process_motor_command(const char *line)
     }
 }
 
-static void process_led_command(const char *line)
+static bool led_heartbeat_callback(repeating_timer_t *timer)
 {
-    size_t len = strlen(line);
+    (void)timer;
 
-    if (len != 2)
-        return;
+    static bool led_is_on = true;
+    static uint8_t off_ticks = 0;
 
-    if (!isdigit((unsigned char)line[0]) ||
-        !isdigit((unsigned char)line[1])) {
-        return;
+    if (led_is_on) {
+        led_is_on = false;
+        off_ticks = 0;
+        gpio_put(LED_PIN, 0);
+    }
+    else if (++off_ticks >= LED_OFF_TICKS) {
+        led_is_on = true;
+        gpio_put(LED_PIN, 1);
     }
 
-    int value =
-        (line[0] - '0') * 10 +
-        (line[1] - '0');
-
-    // LED on for NN * 10 ms.
-    gpio_put(LED_PIN, 1);
-    sleep_ms(value * 10);
-
-    // Then remain off for 200 ms.
-    gpio_put(LED_PIN, 0);
-    sleep_ms(200);
+    return true;
 }
 
 static void process_serial_line(const char *line)
@@ -366,16 +364,6 @@ static void process_serial_line(const char *line)
     if (strlen(line) == 0)
         return;
 
-    // Two-digit command = LED command.
-    if (strlen(line) == 2 &&
-        isdigit((unsigned char)line[0]) &&
-        isdigit((unsigned char)line[1])) {
-
-        process_led_command(line);
-        return;
-    }
-
-    // Otherwise try motor command.
     process_motor_command(line);
 }
 
@@ -438,7 +426,16 @@ int main(void)
     // LED
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
-    gpio_put(LED_PIN, 0);
+    gpio_put(LED_PIN, 1);
+
+    repeating_timer_t led_timer;
+    if (!add_repeating_timer_ms(
+            LED_TICK_MS,
+            led_heartbeat_callback,
+            NULL,
+            &led_timer)) {
+        printf("Failed to start LED heartbeat timer\n");
+    }
 
     // Motors
     motor_pwm_init();
