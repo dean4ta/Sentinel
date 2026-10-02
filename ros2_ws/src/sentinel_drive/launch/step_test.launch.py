@@ -5,6 +5,8 @@
 # Usage (from repo root, robot on blocks):
 #   ros2 launch sentinel_drive step_test.launch.py \
 #       wheel:=FL steps:="0.2,5;0.5,10;1.0,5;0,1;-1.0,10" sine:="2.0,10,10"
+#   ros2 launch sentinel_drive step_test.launch.py wheel:=ALL
+#       (all four wheels together via /cmd_vel; robot must be on blocks)
 # sine is "amp_mps,period_s,duration_s"; defaults to one full 10 s cycle
 # at +/-2 m/s.
 #

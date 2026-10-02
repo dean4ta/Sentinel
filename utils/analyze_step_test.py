@@ -4,6 +4,8 @@
 Usage (from utils/, venv active):
   python analyze_step_test.py ../data/step_test_FL_2026-09-24 \
       --wheel FL -o ../data/fl_step.png
+  python analyze_step_test.py ../data/step_test_latest \
+      --wheel ALL -o ../data   # writes {fl,fr,bl,br}_step.png
 
 Uses the `rosbags` pip package; the sentinel_msgs/WheelSpeeds definition
 is registered locally so no ROS install is needed.
@@ -233,9 +235,25 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('bag_dir')
-    ap.add_argument('--wheel', required=True, choices=sorted(TARGET_FIELDS))
-    ap.add_argument('-o', '--out', required=True)
+    ap.add_argument('--wheel', required=True,
+                    choices=sorted(TARGET_FIELDS) + ['ALL'])
+    ap.add_argument('-o', '--out', required=True,
+                    help='single-wheel: output .png path. ALL: output '
+                         'directory, one {fl,fr,bl,br}_step.png each')
     args = ap.parse_args()
+
+    if args.wheel == 'ALL':
+        for w in ('FL', 'FR', 'BL', 'BR'):
+            out = str(Path(args.out) / f'{w.lower()}_step.png')
+            ts, targets, measured, raw_meas, cmds, enc_ts, counts, events = \
+                extract(args.bag_dir, w)
+            if not ts:
+                print(f'no WheelSpeeds messages found in {args.bag_dir}',
+                      file=sys.stderr)
+                raise SystemExit(1)
+            plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts,
+                 events, w, out)
+        return
 
     ts, targets, measured, raw_meas, cmds, enc_ts, counts, events = extract(
         args.bag_dir, args.wheel)

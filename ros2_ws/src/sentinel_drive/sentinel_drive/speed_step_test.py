@@ -1,21 +1,28 @@
-# Step-response test node: drives one wheel through a list of
-# (speed m/s, duration s) pairs by publishing /wheel_cmd, then an
-# optional sine sweep "amp_mps,period_s,duration_s".
+# Step-response test node: drives wheels through a list of
+# (speed m/s, duration s) pairs, then an optional sine sweep
+# "amp_mps,period_s,duration_s".
+#
+# WHEEL = FL/FR/BL/BR publishes /wheel_cmd (one wheel at a time).
+# WHEEL = ALL publishes Twist on /cmd_vel (linear.x only) so all four
+# wheels run the same profile together through the mecanum IK.
 #
 # Usage:
 #   ros2 run sentinel_drive speed_step_test FL "0.2,5;0.5,10;1.0,5;0,1;-1.0,10" "2.0,10,10"
+#   ros2 run sentinel_drive speed_step_test ALL "0.2,5;0.5,10" ""
 #
 # Publish continuously (20 Hz) so cmd_vel_serial's /wheel_cmd freshness
 # never expires mid-step. Record with rosbag while it runs:
-#   ros2 bag record /wheel_speeds /encoder -o data/step_test_FL_<date>
+#   ros2 bag record /wheel_speeds /encoder -o data/step_test_<date>
 #
-# Robot on blocks. m/s -> wheel rpm uses the nominal 140 mm wheel
-# circumference.
+# Robot on blocks. Single-wheel m/s -> rpm uses the nominal 140 mm wheel
+# circumference; ALL mode goes through the node's V_MAX_LINEAR_MPS
+# scaling (same value to within 1%).
 
 import math
 import sys
 import rclpy
 from rclpy.node import Node
+from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 from sentinel_msgs.msg import StepEvent
 
@@ -41,14 +48,18 @@ class SpeedStepTest(Node):
     def __init__(self, wheel, steps, sine=None):
         super().__init__('speed_step_test')
         self.wheel = wheel.upper()
-        if self.wheel not in WHEELS:
-            raise SystemExit(f'unknown wheel {wheel}, use one of {WHEELS}')
+        if self.wheel not in WHEELS and self.wheel != 'ALL':
+            raise SystemExit(
+                f'unknown wheel {wheel}, use one of {WHEELS} or ALL')
         self.steps = steps
         self.sine = sine  # (amp m/s, period s, duration s) or None
         self.phase = 'steps'
         self.step_idx = 0
         self.step_start = self.get_clock().now()
-        self.pub = self.create_publisher(String, '/wheel_cmd', 10)
+        if self.wheel == 'ALL':
+            self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        else:
+            self.pub = self.create_publisher(String, '/wheel_cmd', 10)
         self.event_pub = self.create_publisher(StepEvent, '/step_events', 10)
         self._publish_event(0, self.steps[0][0])
         self.create_timer(0.05, self.tick)  # 20 Hz, within 0.5 s freshness
@@ -56,9 +67,15 @@ class SpeedStepTest(Node):
             f'step test {self.wheel}: {steps} '
             f'(0.44 m circumference, robot on blocks)')
 
-    def _send(self, rpm):
-        msg = String()
-        msg.data = f'{self.wheel} {rpm:.1f}'
+    def _send(self, mps):
+        if self.wheel == 'ALL':
+            # Twist through the mecanum IK: linear.x -> same surface speed
+            # on all four wheels. Robot must be on blocks or a stand.
+            msg = Twist()
+            msg.linear.x = mps
+        else:
+            msg = String()
+            msg.data = f'{self.wheel} {mps / WHEEL_CIRCUMFERENCE_M * 60.0:.1f}'
         self.pub.publish(msg)
 
     def _publish_event(self, index, mps, sine=False):
@@ -101,7 +118,7 @@ class SpeedStepTest(Node):
 
         if self.step_idx < len(self.steps):
             speed, _ = self.steps[self.step_idx]
-            self._send(speed / WHEEL_CIRCUMFERENCE_M * 60.0)
+            self._send(speed)
 
     def _tick_sine(self, now):
         amp, period, dur = self.sine
@@ -111,15 +128,15 @@ class SpeedStepTest(Node):
             self.get_logger().info('sine done')
             raise SystemExit(0)
         v = amp * math.sin(2 * math.pi * t / period)
-        self._send(v / WHEEL_CIRCUMFERENCE_M * 60.0)
+        self._send(v)
 
 
 def main(args=None):
     rclpy.init(args=args)
     try:
         if len(sys.argv) < 3:
-            print('usage: ros2 run sentinel_drive speed_step_test WHEEL '
-                  '"speed,dur;speed,dur;..." ["amp,period,dur"]')
+            print('usage: ros2 run sentinel_drive speed_step_test '
+                  'WHEEL|ALL "speed,dur;speed,dur;..." ["amp,period,dur"]')
             raise SystemExit(1)
         sine = parse_sine(sys.argv[3]) if len(sys.argv) > 3 else None
         node = SpeedStepTest(sys.argv[1], parse_steps(sys.argv[2]), sine)

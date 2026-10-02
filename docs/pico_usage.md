@@ -65,14 +65,30 @@ No-rule alternative: systemd already symlinks `/dev/serial/by-id/usb-MicroPython
 
 ## Interactive test
 
-Terminal 2, after `main.py` is running on the Pico:
+Protocol (see `pico_led_serial.py` header): one line per command.
+
+- `15` = LED on for 15 x 10 ms, off 200 ms, repeat
+- `fl,fr,bl,br` = float wheel line, -1..1 each (pulse 1100–1900 µs, 0 = neutral).
+  `0,0,0,0` = all neutral. The Pico's 200 ms failsafe goes neutral if the
+  line stops repeating — send at > 5 Hz for sustained motion.
+
+ROS way (from Orin, wheels on blocks): publish the debug topic:
 
 ```bash
-# no virtualenv needed this step
-python3 led_sender.py
+ros2 topic pub -r 20 /wheel_cmd std_msgs/msg/String "data: 'FR 30'"   # FR at 30 rpm
 ```
 
-Commands: `15` = LED on 150ms. `x128`/`y128`/`r128` ≈ neutral PWM, `0`–`255` full range.
+Wheel rpm values, not -1..1 — `cmd_vel_serial` maps them. One wheel per
+command, rest zeroed, overrides `/cmd_vel` while fresh.
+
+Raw serial way (firmware-level check, no ROS): write the line directly
+to the port. Stop `cmd_vel_serial` first — one process per port.
+
+```bash
+python3 -c "import serial; serial.Serial('/dev/sentinel_pico').write(b'0.2,0,0,0\n')"
+```
+
+For a sustained wheel command, repeat the write in a loop (~20 Hz).
 
 ## Gotchas
 
