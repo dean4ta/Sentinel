@@ -17,9 +17,9 @@ cmd_vel_serial:
     # assumed layout (symptom: strafe stick rotates the robot).
     ik_wheelbase_m: 0.35
     ik_roller_swap: false
-    
+
     publish_rate: 50.0
-    rpm_ema_alpha: 0.2      # EMA blend for measured rpm (0.3-0.5 typical)
+    rpm_ema_alpha: 0.8      # EMA blend for measured rpm (0.3-0.5 typical)
     pid_enabled: true       # PID block enable, independent of feed-forward
     # Velocity feed-forward, independent of the PID block:
     #   FF off, PID off -> open loop      FF on,  PID off -> ff only
@@ -35,15 +35,15 @@ cmd_vel_serial:
     #     friction (deadband), kV the velocity gain.
 
     # FL (front-left)   ## LOCKED IN - Sept 28th, 2026 ##
-    fl_output_limit: 0.45
-    fl_kp: 0.001
-    fl_ki: 0.0005
+    fl_output_limit: 1.0
+    fl_kp: 0.0005
+    fl_ki: 0.001
     fl_kd: 0.0
     fl_kS: 0.05
     fl_kV: 0.90
 
     # FR (front-right)  ## LOCKED IN - Sept 28th, 2026 ##
-    fr_output_limit: 0.60
+    fr_output_limit: 1.0
     fr_kp: 0.0005
     fr_ki: 0.0005
     fr_kd: 0.0
@@ -51,7 +51,7 @@ cmd_vel_serial:
     fr_kV: 0.95
 
     # BL (back-left)    ## LOCKED IN - Sept 28th, 2026 ##
-    bl_output_limit: 0.60
+    bl_output_limit: 1.0
     bl_kp: 0.0005
     bl_ki: 0.0005
     bl_kd: 0.0
@@ -59,7 +59,7 @@ cmd_vel_serial:
     bl_kV: 0.97
 
     # BR (back-right)   ## LOCKED IN - Sept 28th, 2026 ##
-    br_output_limit: 0.60
+    br_output_limit: 1.0
     br_kp: 0.001
     br_ki: 0.0005
     br_kd: 0.0

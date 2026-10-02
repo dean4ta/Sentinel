@@ -21,3 +21,6 @@ data/
 plots/
 utils/one_wheel_control_test.sh
 utils/sync_orin.sh
+
+# firmware artifacts
+firmware/pico_motor_controller/build/
