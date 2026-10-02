@@ -21,4 +21,5 @@ colcon build --packages-select sentinel_drive
 
 ## Packages
 
-- [sentinel_drive](src/sentinel_drive/README.md) — gamepad drive control
+- [sentinel_msgs](src/sentinel_msgs/README.md) — custom messages
+- [sentinel_drive](src/sentinel_drive/README.md) — gamepad drive control + Pico serial gateway

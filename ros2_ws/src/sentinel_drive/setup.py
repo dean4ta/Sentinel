@@ -10,7 +10,8 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/launch', ['launch/gamepad.launch.py']),
+        ('share/' + package_name + '/launch',
+            ['launch/gamepad.launch.py', 'launch/step_test.launch.py']),
         ('share/' + package_name + '/config', ['config/drive_params.yaml']),
     ],
     install_requires=['setuptools'],
@@ -23,6 +24,8 @@ setup(
         'console_scripts': [
             'gamepad_twist = sentinel_drive.gamepad_twist:main',
             'cmd_vel_serial = sentinel_drive.cmd_vel_serial:main',
+            'wheel_debug = sentinel_drive.wheel_debug:main',
+            'speed_step_test = sentinel_drive.speed_step_test:main',
         ],
     },
 )
