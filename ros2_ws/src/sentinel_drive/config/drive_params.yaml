@@ -40,14 +40,14 @@ cmd_vel_serial:
     fl_ki: 0.001
     fl_kd: 0.0
     fl_kS: 0.05
-    fl_kV: 0.90
+    fl_kV: 0.88
 
     # FR (front-right)  ## LOCKED IN - Sept 28th, 2026 ##
     fr_output_limit: 1.0
     fr_kp: 0.0005
     fr_ki: 0.0005
     fr_kd: 0.0
-    fr_kS: 0.10
+    fr_kS: 0.11
     fr_kV: 0.95
 
     # BL (back-left)    ## LOCKED IN - Sept 28th, 2026 ##
@@ -64,4 +64,4 @@ cmd_vel_serial:
     br_ki: 0.0005
     br_kd: 0.0
     br_kS: 0.09
-    br_kV: 0.98
+    br_kV: 0.96
