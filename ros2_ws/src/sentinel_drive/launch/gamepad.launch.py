@@ -15,12 +15,23 @@ from datetime import datetime
 import os
 
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, Shutdown
+from launch.actions import ExecuteProcess, OpaqueFunction, Shutdown
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
+
+
+def arm_x_exit(context, gamepad_node):
+    # Event handlers take no condition argument, so register the handler
+    # only in recording mode. X-press exit must not arm otherwise: a dead
+    # gamepad_twist would leave cmd_vel_serial driving the last twist.
+    if str(context.launch_configurations['record']).lower() == 'true':
+        context.register_event_handler(
+            OnProcessExit(target_action=gamepad_node,
+                          on_exit=[Shutdown()]))
+    return []
 
 
 def generate_launch_description():
@@ -76,11 +87,5 @@ def generate_launch_description():
         ),
         bag,
         link_latest,
-        # X-press exit is only armed in recording mode; otherwise a dead
-        # gamepad_twist would leave cmd_vel_serial driving the last twist.
-        OnProcessExit(
-            target_action=gamepad_node,
-            on_exit=[Shutdown()],
-            condition=IfCondition(record),
-        ),
+        OpaqueFunction(function=arm_x_exit, args=[gamepad_node]),
     ])
