@@ -1,6 +1,24 @@
+# Gamepad drive stack: joy_node -> gamepad_twist -> cmd_vel_serial.
+#
+# Optional rosbag recording for tuning runs with the wheels on the
+# ground:
+#   ros2 launch sentinel_drive gamepad.launch.py record:=true
+# Records /wheel_speeds and /encoder to data/gamepad_<date>; symlink
+# data/gamepad_latest points at the newest recording. Analyze with:
+#   python analyze_step_test.py ../data/gamepad_latest --wheel ALL -o ../data
+# (no /step_events in this bag, so the per-step averages are skipped
+# automatically).
+#
+# While record:=true, pressing X (cross) on the PS4 controller exits
+# gamepad_twist, which shuts the whole launch down and closes the bag.
+from datetime import datetime
 import os
 
 from launch import LaunchDescription
+from launch.actions import ExecuteProcess, Shutdown
+from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
@@ -11,6 +29,37 @@ def generate_launch_description():
         'config',
         'drive_params.yaml',
     )
+
+    record = LaunchConfiguration('record', default='false')
+    bag_out = LaunchConfiguration(
+        'bag_out',
+        default='data/gamepad_' + datetime.now().strftime('%Y-%m-%d_%H%M'))
+
+    gamepad_node = Node(
+        package='sentinel_drive',
+        executable='gamepad_twist',
+        name='gamepad_twist',
+        parameters=[config, {'exit_on_x': record}],
+    )
+
+    bag = ExecuteProcess(
+        cmd=['ros2', 'bag', 'record', '/wheel_speeds', '/encoder',
+             '-o', bag_out],
+        output='screen',
+        condition=IfCondition(record),
+    )
+
+    # Symlink lives inside data/, so the target must not carry the
+    # data/ prefix: ln resolves relative paths against the link's dir.
+    # mkdir -p first: ln may run before rosbag creates data/.
+    link_latest = ExecuteProcess(
+        cmd=['bash', '-c',
+             'mkdir -p data && ln -sfn "${1#data/}" data/gamepad_latest',
+             '_', bag_out],
+        output='screen',
+        condition=IfCondition(record),
+    )
+
     return LaunchDescription([
         Node(
             package='joy',
@@ -18,16 +67,20 @@ def generate_launch_description():
             name='joy_node',
             parameters=[{'autorepeat_rate': 20.0}],
         ),
-        Node(
-            package='sentinel_drive',
-            executable='gamepad_twist',
-            name='gamepad_twist',
-            parameters=[config],
-        ),
+        gamepad_node,
         Node(
             package='sentinel_drive',
             executable='cmd_vel_serial',
             name='cmd_vel_serial',
             parameters=[config],
+        ),
+        bag,
+        link_latest,
+        # X-press exit is only armed in recording mode; otherwise a dead
+        # gamepad_twist would leave cmd_vel_serial driving the last twist.
+        OnProcessExit(
+            target_action=gamepad_node,
+            on_exit=[Shutdown()],
+            condition=IfCondition(record),
         ),
     ])

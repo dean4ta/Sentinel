@@ -7,6 +7,10 @@ Usage (from utils/, venv active):
   python analyze_step_test.py ../data/step_test_latest \
       --wheel ALL -o ../data   # writes {fl,fr,bl,br}_step.png
 
+Also handles gamepad.launch.py bags (no /step_events): the per-step
+encoder-average overlay is skipped automatically when no step events
+are present.
+
 Uses the `rosbags` pip package; the sentinel_msgs/WheelSpeeds definition
 is registered locally so no ROS install is needed.
 """
@@ -196,7 +200,7 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
     ax_rpm.plot(t, measured, label='measured m/s', alpha=0.8)
     ax_rpm.set_ylabel('m/s')
     ax_rpm.set_ylim(-2.5, 2.5)
-    ax_rpm.set_title(f'{wheel} step response')
+    ax_rpm.set_title(f'{wheel} response')
     ax_rpm.legend()
     ax_rpm.grid(True, alpha=0.3)
 
