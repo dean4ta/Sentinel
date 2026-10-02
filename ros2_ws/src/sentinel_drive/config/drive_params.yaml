@@ -3,8 +3,8 @@ gamepad_twist:
     deadzone: 0.05
     invert_strafe: false
     invert_rotate: false
-    rotate_limit: 1.5   # rad/s, full-stick rotate ceiling
-    speed_scale: 0.25
+    rotate_limit: 6.0   # rad/s, full-stick rotate ceiling
+    speed_scale: 0.5
 
 cmd_vel_serial:
   ros__parameters:
