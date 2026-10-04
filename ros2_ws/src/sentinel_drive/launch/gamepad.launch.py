@@ -18,7 +18,7 @@ from launch import LaunchDescription
 from launch.actions import ExecuteProcess, OpaqueFunction, Shutdown
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
@@ -45,6 +45,12 @@ def generate_launch_description():
     bag_out = LaunchConfiguration(
         'bag_out',
         default='data/gamepad_' + datetime.now().strftime('%Y-%m-%d_%H%M'))
+    # Space-separated topics for the recorder. Override for slim input
+    # recordings meant for offline replay, e.g.:
+    #   record:=true record_topics:="/wheel_speeds /encoder"
+    record_topics = LaunchConfiguration(
+        'record_topics',
+        default='/wheel_speeds /encoder /wheel_consistency /wheel_odom')
 
     gamepad_node = Node(
         package='sentinel_drive',
@@ -54,8 +60,9 @@ def generate_launch_description():
     )
 
     bag = ExecuteProcess(
-        cmd=['ros2', 'bag', 'record', '/wheel_speeds', '/encoder',
-             '/wheel_consistency', '/wheel_odom', '-o', bag_out],
+        cmd=['bash', '-c', PythonExpression(
+            ["'ros2 bag record ' + '", record_topics, "' + ' -o ' + '",
+             bag_out, "'"])],
         output='screen',
         condition=IfCondition(record),
     )
