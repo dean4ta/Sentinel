@@ -5,10 +5,10 @@ gamepad_twist:
     invert_rotate: false
     rotate_limit: 6.0   # rad/s, full-stick rotate ceiling
     speed_scale: 0.5
-    # PS4 button 0 = X (cross). With record:=true the launch overrides
-    # exit_on_x to true: pressing X ends the whole recording run.
+    # With record:=true the launch overrides exit_on_x to true: any
+    # button press on the controller (sticks do the driving) ends the
+    # whole recording run.
     exit_on_x: false
-    exit_button: 0
 
 cmd_vel_serial:
   ros__parameters:

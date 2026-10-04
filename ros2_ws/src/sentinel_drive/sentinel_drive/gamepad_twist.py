@@ -29,11 +29,10 @@ class GamepadTwist(Node):
         self.declare_parameter('invert_rotate', False)
         self.declare_parameter('rotate_limit', 2.5)  # rad/s
         self.declare_parameter('speed_scale', 1.0)
-        # PS4 (hid-sony): button 0 = X (cross). exit_on_x ends the whole
-        # launch through an OnProcessExit handler in gamepad.launch.py,
-        # only armed when record:=true.
+        # With exit_on_x, any button press ends the run: the sticks do the
+        # driving and no button has another job, so matching one specific
+        # PS4 button index is not worth the mapping fragility.
         self.declare_parameter('exit_on_x', False)
-        self.declare_parameter('exit_button', 0)
 
         self.dz = self.get_parameter('deadzone').value
         self.invert_strafe = self.get_parameter('invert_strafe').value
@@ -45,10 +44,13 @@ class GamepadTwist(Node):
         # ('true'/'false'); accept bool or string either way.
         self.exit_on_x = (
             str(self.get_parameter('exit_on_x').value).lower() == 'true')
-        self.exit_button = self.get_parameter('exit_button').value
+        self.exit_requested = False
 
         self.create_subscription(Joy, '/joy', self.joy_cb, 10)
         self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        # Raise SystemExit from a timer, not the subscription callback:
+        # timer exceptions reliably tear down rclpy.spin.
+        self.create_timer(0.1, self._tick_exit)
 
         self.get_logger().info(
             f'Publishing /cmd_vel. deadzone={self.dz}, '
@@ -56,8 +58,13 @@ class GamepadTwist(Node):
             f'invert_rotate={self.invert_rotate}, '
             f'rotate_limit={self.rotate_limit}, '
             f'speed_scale={self.speed_scale}, '
-            f'exit_on_x={self.exit_on_x} (button {self.exit_button})'
+            f'exit_on_x={self.exit_on_x}'
         )
+
+    def _tick_exit(self):
+        if self.exit_requested:
+            self.get_logger().info('button pressed: exiting')
+            raise SystemExit(0)
 
     def _map(self, v):
         # Deadzone, then rescale so motion starts smoothly at the edge.
@@ -70,11 +77,12 @@ class GamepadTwist(Node):
         if len(msg.axes) < 3:
             return
 
-        if (self.exit_on_x and len(msg.buttons) > self.exit_button
-                and msg.buttons[self.exit_button]):
+        if self.exit_on_x and any(msg.buttons):
             self.get_logger().info(
-                f'button {self.exit_button} pressed: exiting')
-            raise SystemExit(0)
+                f'buttons pressed: '
+                f'{[i for i, b in enumerate(msg.buttons) if b]}')
+            self.exit_requested = True
+            return
 
         twist = Twist()
         twist.linear.x = self._map(msg.axes[1]) * V_MAX_LINEAR_MPS
