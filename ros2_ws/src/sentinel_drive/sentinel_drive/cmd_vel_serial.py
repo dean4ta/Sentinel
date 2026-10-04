@@ -125,8 +125,7 @@ class CmdVelSerial(Node):
         self.last_wheel_cmd = self.get_clock().now()
 
         # Per-wheel speed controllers + feedback state.
-        self.declare_parameter('rpm_ema_alpha', 0.4)
-        self.ema_alpha = self.get_parameter('rpm_ema_alpha').value
+        self.ema_alpha = {}
         # false = open-loop: target rpm mapped straight to PWM (still capped
         # at the per-wheel *_output_limit). Startup-only; restart to toggle.
         self.declare_parameter('pid_enabled', True)
@@ -158,6 +157,7 @@ class CmdVelSerial(Node):
             self.declare_parameter(f'{name.lower()}_output_limit', 0.45)
             self.declare_parameter(f'{name.lower()}_kS', 0.05)
             self.declare_parameter(f'{name.lower()}_kV', 0.85)
+            self.declare_parameter(f'{name.lower()}_ema_alpha', 0.4)
             self.pids[name] = WheelPID(
                 self.get_parameter(f'{name.lower()}_kp').value,
                 self.get_parameter(f'{name.lower()}_ki').value,
@@ -166,6 +166,8 @@ class CmdVelSerial(Node):
                     f'{name.lower()}_output_limit').value)
             self.kS[name] = self.get_parameter(f'{name.lower()}_kS').value
             self.kV[name] = self.get_parameter(f'{name.lower()}_kV').value
+            self.ema_alpha[name] = self.get_parameter(
+                f'{name.lower()}_ema_alpha').value
         self.measured_rpm = {name: 0.0 for name in ENCODER_NAMES}
         self.raw_rpm = {name: 0.0 for name in ENCODER_NAMES}
         self.last_counts = {name: 0 for name in ENCODER_NAMES}
@@ -264,8 +266,8 @@ class CmdVelSerial(Node):
             # EMA smooth: raw rpm quantizes to ~±11 rpm steps at low speed
             # (5 ticks per 20 ms at 27 rpm); filter before the PID sees it.
             self.measured_rpm[name] = (
-                self.ema_alpha * raw
-                + (1.0 - self.ema_alpha) * self.measured_rpm[name])
+                self.ema_alpha[name] * raw
+                + (1.0 - self.ema_alpha[name]) * self.measured_rpm[name])
             self.last_counts[name] = self.counts[name]
         self.last_enc_time = now
 

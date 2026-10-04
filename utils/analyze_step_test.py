@@ -190,7 +190,7 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
     fig.suptitle(
         f"{pid_txt}  |  {ff_txt}  |  "
         f"output_limit={params.get(w + '_output_limit', '?')}, "
-        f"ema_alpha={params.get('rpm_ema_alpha', '?')}",
+        f"ema_alpha={params.get(w + '_ema_alpha', '?')}",
         fontsize=9)
     ax_rpm.plot(t, raw_meas, label='measured raw', color='tab:blue',
                 alpha=0.12, lw=0.8)

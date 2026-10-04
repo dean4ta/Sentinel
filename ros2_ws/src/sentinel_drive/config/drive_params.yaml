@@ -23,7 +23,6 @@ cmd_vel_serial:
     ik_roller_swap: false
 
     publish_rate: 50.0
-    rpm_ema_alpha: 0.8      # EMA blend for measured rpm (0.3-0.5 typical)
     pid_enabled: true       # PID block enable, independent of feed-forward
     # Velocity feed-forward, independent of the PID block:
     #   FF off, PID off -> open loop      FF on,  PID off -> ff only
@@ -37,6 +36,7 @@ cmd_vel_serial:
     #   *_kS, *_kV: feed-forward u_ff = kS * sign(v_ref) + kV * v_ref
     #     (v_ref = target / WHEEL_MAX_RPM). kS compensates static
     #     friction (deadband), kV the velocity gain.
+    #   *_ema_alpha: measured-rpm EMA blend for this wheel.
 
     # FL (front-left)   ## LOCKED IN - Sept 28th, 2026 ##
     fl_output_limit: 1.0
@@ -45,6 +45,7 @@ cmd_vel_serial:
     fl_kd: 0.0
     fl_kS: 0.05
     fl_kV: 0.88
+    fl_ema_alpha: 0.8
 
     # FR (front-right)  ## LOCKED IN - Sept 28th, 2026 ##
     fr_output_limit: 1.0
@@ -53,6 +54,7 @@ cmd_vel_serial:
     fr_kd: 0.0
     fr_kS: 0.11
     fr_kV: 0.95
+    fr_ema_alpha: 0.8
 
     # BL (back-left)    ## LOCKED IN - Sept 28th, 2026 ##
     bl_output_limit: 1.0
@@ -61,6 +63,7 @@ cmd_vel_serial:
     bl_kd: 0.0
     bl_kS: 0.11
     bl_kV: 0.97
+    bl_ema_alpha: 0.8
 
     # BR (back-right)   ## LOCKED IN - Sept 28th, 2026 ##
     br_output_limit: 1.0
@@ -69,3 +72,4 @@ cmd_vel_serial:
     br_kd: 0.0
     br_kS: 0.09
     br_kV: 0.96
+    br_ema_alpha: 0.8
