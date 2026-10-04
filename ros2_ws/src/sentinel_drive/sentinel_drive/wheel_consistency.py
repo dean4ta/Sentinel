@@ -85,17 +85,16 @@ def suspicion(residual: float, measured: float, target: float,
     overspeed means larger MAGNITUDE, so a slipping wheel gets a
     negative residual when driving in reverse. Gates, in order:
     1. Target-excess attribution: the wheel's speed excess over its own
-       target (|measured| - |target|) must exceed every peer's excess
-       by at least margin. A slipping wheel beats its target while
-       loaded peers lag theirs, so it wins this comparison. This also
-       kills leave-one-out smear: an outlier distorts the 3-wheel fits
-       so a healthy partner can show a same-direction residual, but a
-       healthy wheel does not beat its own target by more than the
-       outlier does. (Raw |measured| vs max peer does NOT work here:
-       with heterogeneous targets, e.g. combined motion, a slipped slow
-       wheel can stay below a fast commanded peer.)
+       target (|measured| - |target|) must exceed every peer's excess by
+       at least margin. A slipping wheel beats its target while loaded
+       peers lag theirs, so it wins. This also kills leave-one-out smear:
+       an outlier distorts the 3-wheel fits so a healthy partner can show
+       a same-direction residual, but a healthy wheel does not beat its
+       own target by more than the outlier does. (Raw |measured| vs max
+       peer does NOT work here: with heterogeneous targets, e.g. combined
+       motion, a slipped slow wheel can stay below a fast commanded peer.)
     2. Direction-projected residual above threshold.
-    3. Tracking evidence scales the score: a wheel that also tracks its
+    3. Tracking evidence scales the score: a wheel that tracks its
        command much better than its peers (slipping lifts load, so the
        controller nails the target while loaded wheels lag) is more
        suspicious.

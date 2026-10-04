@@ -1,14 +1,8 @@
-# Gamepad /joy to /cmd_vel Twist publisher.
+# Gamepad /joy -> /cmd_vel Twist (SI: m/s, rad/s).
 #
-# Axes (PS4 / standard joy_node layout):
-#   axes[1] = drive   (left stick Y, forward positive)
-#   axes[0] = strafe  (left stick X, right positive)
-#   axes[2] = rotate  (right stick X, right positive)
-#
-# Published Twist (SI units): linear.x = drive (m/s), linear.y = strafe
-# (m/s), angular.z = rotate (rad/s), scaled by the V_MAX ceiling constants
-# shared with cmd_vel_serial. Channel/sign compensation for Sentinel 1
-# wiring lives in cmd_vel_serial, not here.
+# Axes (PS4 / joy_node layout): 1 = drive (left Y), 0 = strafe (left X),
+# 2 = rotate (right X). Speeds scale by the V_MAX_* ceilings shared with
+# cmd_vel_serial; channel/sign compensation for the wiring lives there.
 
 import rclpy
 from rclpy.node import Node
@@ -29,9 +23,9 @@ class GamepadTwist(Node):
         self.declare_parameter('invert_rotate', False)
         self.declare_parameter('rotate_limit', 2.5)  # rad/s
         self.declare_parameter('speed_scale', 1.0)
-        # With exit_on_x, any button press ends the run: the sticks do the
-        # driving and no button has another job, so matching one specific
-        # PS4 button index is not worth the mapping fragility.
+        # Any button ends the run: the sticks do the driving and no
+        # button has another job, so matching one PS4 button index is
+        # not worth the mapping fragility.
         self.declare_parameter('exit_on_x', False)
 
         self.dz = self.get_parameter('deadzone').value
@@ -40,8 +34,8 @@ class GamepadTwist(Node):
         self.rotate_limit = self.get_parameter('rotate_limit').value
         self.speed_scale = min(
             1.0, max(0.0, self.get_parameter('speed_scale').value))
-        # launch passes the record:= LaunchConfiguration as a string
-        # ('true'/'false'); accept bool or string either way.
+        # launch passes record:= as a string ('true'/'false'); accept
+        # either type.
         self.exit_on_x = (
             str(self.get_parameter('exit_on_x').value).lower() == 'true')
         self.exit_requested = False

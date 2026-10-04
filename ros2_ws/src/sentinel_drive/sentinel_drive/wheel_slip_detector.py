@@ -1,26 +1,16 @@
 # Wheel slip / contact-loss detection via leave-one-out mecanum
 # consistency (see wheel_consistency.py for the math).
 #
-# Subscribes /wheel_speeds (from cmd_vel_serial: target + measured rpm
-# per wheel), publishes WheelConsistency on /wheel_consistency:
-# per-wheel confidence (1.0 = trusted, 0.0 = suspicious) and residual
-# (measured - predicted m/s; sign-aware handling lives in
-# wheel_consistency.suspicion, which projects onto each wheel's
-# direction of travel).
+# /wheel_speeds (target + measured rpm, already forward-positive per
+# cmd_vel_serial) -> WheelConsistency on /wheel_consistency: per-wheel
+# confidence (1.0 trusted, 0.0 suspicious) + residual (m/s, sign-aware
+# via suspicion's projection onto each wheel's direction of travel).
 #
-# Processing runs in the subscription callback, so the filter advances
-# exactly once per /wheel_speeds sample and goes quiet (no stale
-# integration) if cmd_vel_serial dies.
+# Runs in the subscription callback: the filter advances exactly once
+# per /wheel_speeds sample and goes quiet if cmd_vel_serial dies.
 #
-# Sign convention: cmd_vel_serial applies ENC_DIRECTIONS in
-# update_rpm before publishing, so *_measured_rpm_filtered is already
-# forward-positive per wheel, matching the mecanum IK convention here.
 # Hardware sanity check: drive straight forward, all four measured
 # values must come out positive.
-#
-# No odometry exists yet in the workspace; this node publishes the
-# confidence/residuals so a future odometry node can weight its
-# least-squares wheel-odom estimate without re-deriving the math.
 #
 # Asymmetric by design: a wheel faster than predicted is suspicious, a
 # slower wheel stays trusted (spec assumption: wheels do not jam).
@@ -38,10 +28,9 @@ class WheelSlipDetector(Node):
     def __init__(self):
         super().__init__('wheel_slip_detector')
 
-        # No geometry param needed: the consistency check works directly
-        # in wL (omega_z * wheelbase), which cancels out of the IK/FK
-        # round-trip. Robot half-track + half-wheelbase = 0.413/2 +
-        # 0.311/2 = 0.362 m only matters to a future odometry node.
+        # No geometry param needed: the check works directly in wL
+        # (omega_z * wheelbase), which cancels out of the IK/FK
+        # round-trip. lxy only matters to wheel_odometry.
         self.declare_parameter('wheel_circumference_m', 0.44)
         self.declare_parameter('residual_threshold_mps', 0.05)
         self.declare_parameter('residual_scale_mps', 0.15)

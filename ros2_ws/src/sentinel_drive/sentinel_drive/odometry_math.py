@@ -1,12 +1,8 @@
 """Confidence-weighted mecanum odometry math. Node-free for unit tests.
 
 Same conventions as wheel_consistency.py and cmd_vel_serial's IK:
-x forward, y left, CCW positive, wheel surface speeds in m/s, and
-
-    fl = vx - vy - wL,  fr = vx + vy + wL,
-    bl = vx + vy - wL,  br = vx - vy + wL
-
-with wL = omega_z * lxy, lxy = half-track + half-wheelbase.
+x forward, y left, CCW positive, wheel surface speeds in m/s,
+wL = omega_z * lxy, lxy = half-track + half-wheelbase.
 
 The estimate is a ridge-regularised weighted least squares:
 

@@ -1,20 +1,16 @@
 # Confidence-weighted mecanum wheel odometry.
 #
-# Subscribes /wheel_speeds (measured rpm per wheel, already
-# forward-positive per cmd_vel_serial) and /wheel_consistency (per-wheel
-# confidence from wheel_slip_detector). Each /wheel_speeds sample is
-# turned into a body twist by ridge-regularised weighted least squares
-# (see odometry_math.py), integrated into an odom-frame pose, and
-# published as nav_msgs/Odometry on /wheel_odom.
+# /wheel_speeds + /wheel_consistency -> body twist via ridge-regularised
+# weighted LS (odometry_math.py) -> integrated odom-frame pose ->
+# nav_msgs/Odometry on /wheel_odom.
 #
-# Degraded handling: when fewer than about three wheels are trusted, the
-# unobservable twist directions fall back to the previous estimate and
-# the twist covariance grows accordingly, so a downstream filter can
-# down-weight this source. The slip detector assumes a single bad wheel,
-# so low confidence on two wheels at once should be treated as "wheel
-# odometry unreliable" rather than as a precise estimate.
+# Degraded: with fewer than ~3 trusted wheels, unobservable twist
+# directions fall back to the previous estimate and the covariance
+# grows. The slip detector assumes a single bad wheel, so low
+# confidence on two wheels means "wheel odom unreliable", not a
+# precise estimate.
 #
-# No TF is broadcast here. Let the eventual fusion node own odom->base.
+# No TF here; the eventual fusion node owns odom->base.
 
 import math
 
@@ -37,8 +33,8 @@ class WheelOdometry(Node):
 
         self.declare_parameter('wheel_circumference_m', 0.44)
         # half-track + half-wheelbase = 0.413/2 + 0.311/2 = 0.362 m.
-        # NOTE: cmd_vel_serial's ik_wheelbase_m defaults to 0.35. They
-        # should match, or commanded and measured yaw rates disagree.
+        # Must match cmd_vel_serial's ik_wheelbase_m (0.35 today) or
+        # commanded and measured yaw rates disagree.
         self.declare_parameter('lxy_m', 0.362)
         self.declare_parameter('weight_floor', 0.05)
         self.declare_parameter('ridge', 0.05)

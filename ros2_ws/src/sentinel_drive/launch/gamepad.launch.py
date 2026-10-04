@@ -1,16 +1,10 @@
-# Gamepad drive stack: joy_node -> gamepad_twist -> cmd_vel_serial.
-#
-# Optional rosbag recording for tuning runs with the wheels on the
-# ground:
+# Gamepad drive stack + optional rosbag recording for on-ground tuning:
+#   ros2 launch sentinel_drive gamepad.launch.py            # just drive
 #   ros2 launch sentinel_drive gamepad.launch.py record:=true
-# Records /wheel_speeds and /encoder to data/gamepad_<date>; symlink
-# data/gamepad_latest points at the newest recording. Analyze with:
-#   python analyze_step_test.py ../data/gamepad_latest --wheel ALL -o ../data
-# (no /step_events in this bag, so the per-step averages are skipped
-# automatically).
-#
-# While record:=true, pressing X (cross) on the PS4 controller exits
-# gamepad_twist, which shuts the whole launch down and closes the bag.
+# Records to data/gamepad_<date>; data/gamepad_latest symlinks the newest
+# (analyze with utils/analyze_step_test.py). While recording, pressing X
+# on the PS4 exits gamepad_twist, shutting the launch down and closing
+# the bag cleanly.
 from datetime import datetime
 import os
 

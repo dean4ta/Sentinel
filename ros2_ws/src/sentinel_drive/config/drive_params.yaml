@@ -7,7 +7,7 @@ gamepad_twist:
     speed_scale: 0.5
     # With record:=true the launch overrides exit_on_x to true: any
     # button press on the controller (sticks do the driving) ends the
-    # whole recording run.
+    # recording run.
     exit_on_x: false
 
 cmd_vel_serial:
@@ -27,8 +27,8 @@ cmd_vel_serial:
     # Velocity feed-forward, independent of the PID block:
     #   FF off, PID off -> open loop      FF on,  PID off -> ff only
     #   FF off, PID on  -> PID            FF on,  PID on  -> ff + PID
-    # output then passes the per-wheel output limit.
-    feed_forward_enabled: true   # independently enables velocity feed-forward
+    # Output then passes the per-wheel output limit.
+    feed_forward_enabled: true
 
     # Per-wheel sections. For each wheel:
     #   *_output_limit: cap on commanded PWM, PID and open-loop.

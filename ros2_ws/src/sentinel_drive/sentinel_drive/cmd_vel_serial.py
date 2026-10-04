@@ -1,26 +1,15 @@
 # /cmd_vel Twist <-> Pico serial gateway with per-wheel speed control.
 #
-# Control chain (per wheel):
-#   target speed (rpm) -> [ff: kS*sign(v_ref) + kV*v_ref] + [PID (kp/ki/kd)]
-#   -> per-wheel output limit -> normalized PWM [-1,1]
-#   -> Pico -> motor -> encoder feedback (counts -> measured rpm)
+# Chain per wheel: target rpm -> [ff kS*sign(v)+kV*v] + [PID] -> output
+# limit -> normalized PWM [-1,1] -> Pico. ff and PID are independent
+# blocks, each with its own enable param.
 #
-# Feed-forward and PID are independent blocks: each has its own
-# enable/disable parameter; output = u_ff + pid_output, then limited.
+# Writes "fl,fr,bl,br\n" floats at publish_rate Hz; the Pico enforces its
+# own failsafe, so a continuous stream keeps drive alive. /wheel_cmd
+# ("FL 30" = 30 rpm) overrides /cmd_vel while fresh (< 0.5 s silence).
 #
-# Writes: subscribes /cmd_vel and writes "fl,fr,bl,br\n" float wheel
-# commands (-1..1) to the Pico over USB serial at a fixed rate. The Pico
-# converts values to per-wheel PWM and enforces its own failsafe, so
-# a continuous stream at >5Hz keeps the drive alive.
-#
-# Also subscribes /wheel_cmd (std_msgs/String, "FL 30" = 30 rpm) for
-# per-wheel debug; it overrides /cmd_vel while fresh (< 0.5 s silence
-# falls back to twist).
-#
-# Reads: drains "FL <n>" / "FR <n>" / "BL <n>" / "BR <n>" encoder lines
-# from the Pico and publishes them as sentinel_drive/EncoderCounts on
-# /encoder. This node must be the only process holding the serial port,
-# so it owns both directions.
+# Reads "FL <n>" encoder lines -> EncoderCounts on /encoder. Sole owner
+# of the serial port (both directions).
 #
 # Direct drive, mecanum mixer bypassed (2026-09-24): FR -> GP18,
 # BR -> GP19, FL -> GP20, BL -> GP21.
@@ -35,31 +24,26 @@ from sentinel_msgs.msg import EncoderCounts, WheelSpeeds
 
 ENCODER_NAMES = ('FL', 'FR', 'BL', 'BR')
 
-# /cmd_vel carries SI units (m/s, rad/s); these ceiling constants normalize
-# to the [-1, 1] wire protocol. Both are first-pass estimates pending
-# real-robot calibration, not trusted exact values.
-V_MAX_LINEAR_MPS = 2.29   # TODO: measure. Theoretical no-load max at 12 V:
-                          # 5203 19.2:1 motor (312 RPM output) x 140 mm
-                          # mecanum wheel circumference. Loaded max lower.
-V_MAX_ANGULAR_RADPS = 5.0  # TODO: measure. Placeholder pending a timed
-                           # full-speed spin test (rad/s at commanded max
-                           # rotate) — no clean formula; mixing happens in
-                           # the hardware mecanum mixer board, not here.
-WHEEL_MAX_RPM = 312.0  # TODO: measure. 5203 19.2:1 no-load output RPM,
-                       # used by /wheel_cmd debug commands (rpm -> [-1, 1]).
+# /cmd_vel carries SI units; these ceilings normalize to the [-1,1] wire
+# protocol. First-pass estimates, not trusted exact values.
+V_MAX_LINEAR_MPS = 2.29   # TODO measure: 5203 19.2:1 no-load (312 rpm) x
+                          # 140 mm wheel circumference; loaded max lower.
+V_MAX_ANGULAR_RADPS = 5.0  # TODO measure: timed full-speed spin. Mixing
+                           # happens on the Pico, no clean formula here.
+WHEEL_MAX_RPM = 312.0  # 5203 19.2:1 no-load output rpm; /wheel_cmd maps
+                       # rpm -> [-1,1] via this.
 
-# Encoder ticks per output-shaft revolution (measured 2026-09-24,
-# 20 hand-spun revolutions: 532.65/532.65/532.85/529.85 ticks/rev).
+# Encoder ticks per output-shaft rev (measured 2026-09-24, 20 hand-spun
+# revolutions: 532.65/532.65/532.85/529.85 ticks/rev).
 TICKS_PER_REV = 532.0
 
-# Per-wheel PWM direction: +1 = positive command spins wheel forward.
-# FR/BR flipped (observed 2026-09-24): right-side motor controllers mount
-# with opposite polarity. Applied at the serial boundary so both /cmd_vel
-# and /wheel_cmd get corrected.
+# Per-wheel PWM sign: +1 = forward. FR/BR flipped (observed 2026-09-24):
+# right-side controllers mount with opposite polarity. Applied here so
+# /cmd_vel and /wheel_cmd both get corrected.
 WHEEL_DIRECTIONS = {'FL': 1.0, 'FR': -1.0, 'BL': 1.0, 'BR': -1.0}
 
 # Encoder count sign during forward motion (observed 2026-09-24): left
-# wheels count negative, right positive (mirrored encoder mounting).
+# wheels count negative, right positive (mirrored mounting).
 ENC_DIRECTIONS = {'FL': -1.0, 'FR': 1.0, 'BL': -1.0, 'BR': 1.0}
 
 # Encoder silence longer than this disables PID output (neutral PWM):
@@ -126,24 +110,20 @@ class CmdVelSerial(Node):
 
         # Per-wheel speed controllers + feedback state.
         self.ema_alpha = {}
-        # false = open-loop: target rpm mapped straight to PWM (still capped
-        # at the per-wheel *_output_limit). Startup-only; restart to toggle.
+        # false = open-loop (target rpm straight to PWM, still capped by
+        # *_output_limit). Startup-only; restart to toggle.
         self.declare_parameter('pid_enabled', True)
         self.pid_enabled = self.get_parameter('pid_enabled').value
-        # Velocity feed-forward: independent block, added to the PID
-        # output before the per-wheel output limit. Enabled independently
-        # of pid_enabled; kS/kV are per-wheel.
+        # Velocity feed-forward, independent of pid_enabled; kS/kV
+        # are per-wheel.
         self.declare_parameter('feed_forward_enabled', True)
         self.ff_enabled = self.get_parameter('feed_forward_enabled').value
-        # Mecanum IK geometry. ik_wheelbase_m = half-track + half-
-        # wheelbase (m): converts rad/s rotation to wheel surface speed.
-        # Measure on the robot: half the distance between left/right
-        # wheel centers plus half between front/back.
+        # Mecanum IK geometry: half-track + half-wheelbase (m), converts
+        # rad/s rotation to wheel surface speed. Measure on the robot.
         self.declare_parameter('ik_wheelbase_m', 0.35)
         self.ik_wheelbase_m = self.get_parameter('ik_wheelbase_m').value
-        # Mecanum rollers can be assembled with either diagonal pairing;
-        # the wrong assumption turns strafe into rotation and vice versa.
-        # If strafe/rotate come out swapped, flip this instead of
+        # Wrong roller diagonal pairing turns strafe into rotation and
+        # vice versa; if they come out swapped, flip this instead of
         # editing the IK.
         self.declare_parameter('ik_roller_swap', False)
         self.ik_roller_swap = self.get_parameter('ik_roller_swap').value
@@ -252,9 +232,8 @@ class CmdVelSerial(Node):
             return
         for name in ENCODER_NAMES:
             if name not in self.enc_primed:
-                # Prime baseline on first report from this wheel. Separate
-                # set from enc_seen: drain_encoders marks seen this same
-                # tick, so a seen-check here would never prime and the
+                # Prime baseline on first report; enc_seen is marked this
+                # same tick, so a seen-check would never prime and the
                 # first delta would be the absolute count.
                 self.last_counts[name] = self.counts[name]
                 self.enc_primed.add(name)
@@ -263,7 +242,7 @@ class CmdVelSerial(Node):
             delta = self.counts[name] - self.last_counts[name]
             raw = delta * ENC_DIRECTIONS[name] * 60.0 / TICKS_PER_REV / dt
             self.raw_rpm[name] = raw
-            # EMA smooth: raw rpm quantizes to ~±11 rpm steps at low speed
+            # EMA: raw rpm quantizes ~±11 rpm steps at low speed
             # (5 ticks per 20 ms at 27 rpm); filter before the PID sees it.
             self.measured_rpm[name] = (
                 self.ema_alpha[name] * raw
@@ -285,8 +264,8 @@ class CmdVelSerial(Node):
         msg.fr_measured_rpm_raw = self.raw_rpm['FR']
         msg.bl_measured_rpm_raw = self.raw_rpm['BL']
         msg.br_measured_rpm_raw = self.raw_rpm['BR']
-        # PID output is normalized PWM; convert back to rpm-equivalent so
-        # the bag shows what was actually commanded to the wheel.
+        # Normalized PWM -> rpm-equivalent so the bag shows what was
+        # actually commanded to the wheel.
         msg.fl_cmd_rpm = cmds['FL'] * WHEEL_MAX_RPM
         msg.fr_cmd_rpm = cmds['FR'] * WHEEL_MAX_RPM
         msg.bl_cmd_rpm = cmds['BL'] * WHEEL_MAX_RPM
@@ -294,10 +273,9 @@ class CmdVelSerial(Node):
         self.wheel_speeds_pub.publish(msg)
 
     def feed_forward(self, name, target):
-        """u_ff = kS * sign(v_ref) + kV * v_ref (v_ref normalized).
+        """u_ff = kS*sign(v_ref) + kV*v_ref (v_ref normalized).
 
         kS compensates static friction/deadband, kV the velocity gain.
-        Zero target -> zero ff (no creep).
         """
         v_ref = target / WHEEL_MAX_RPM
         if v_ref == 0.0:
@@ -318,9 +296,9 @@ class CmdVelSerial(Node):
         if self.mode == 'wheels':
             targets = self.wheel_targets
         else:
-            # Mecanum IK (x forward, y left, CCW positive): twist ->
-            # per-wheel surface speeds (m/s), then scaled together so no
-            # wheel exceeds full speed while direction ratios are kept.
+            # Mecanum IK (x forward, y left, CCW positive) -> per-wheel
+            # surface speeds, scaled so no wheel exceeds full speed while
+            # direction ratios are kept.
             vx = self.latest.linear.x
             vy = self.latest.linear.y
             w = self.latest.angular.z * self.ik_wheelbase_m
@@ -361,8 +339,7 @@ class CmdVelSerial(Node):
                 if enc_stale:
                     cmds[name] = 0.0
             else:
-                # PID off: open loop. ff on -> kS*sign + kV*v_ref;
-                # ff off -> raw passthrough (target / WHEEL_MAX_RPM).
+                # PID off, open loop: ff (or raw v_ref) through the limit.
                 u_ff = (self.feed_forward(name, target)
                         if self.ff_enabled else v_ref)
                 cmds[name] = max(-out_max, min(out_max, u_ff))

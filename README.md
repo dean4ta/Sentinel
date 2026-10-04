@@ -9,3 +9,24 @@ Sentinel 1 is an autonomous retail security and assistance robot for the Loss Pr
 1. **Mobile autonomy** — reliable localization (wheel encoders + IMU + LiDAR fusion) and navigation so the robot patrols a store unattended.
 2. **Robot arm** — attach and program the arm with a pressure-sensing gripper to pick up small items.
 3. **Customer and operator interface** — voice assistant and patrol mission control for store staff and customers.
+
+## Repo layout
+
+- `ros2_ws/` — ROS 2 Humble workspace (builds on the Orin). [README](ros2_ws/README.md)
+  - `src/sentinel_msgs/` — custom messages (EncoderCounts, WheelSpeeds, WheelConsistency, StepEvent)
+  - `src/sentinel_drive/` — gamepad → Pico drive stack, slip detection, wheel odometry
+- `firmware/` — RP2040 Pico firmware (motors, encoders, IMU)
+- `utils/` — scripts for tuning and analysis on the Mac (bag plotting, slip-compensation replay)
+- `docs/` — robot research notes
+
+## Quickstart (on the Orin)
+
+```bash
+cd ~/dean/Sentinel/ros2_ws
+source /opt/ros/humble/setup.bash
+colcon build && source install/setup.bash
+cd ..
+ros2 launch sentinel_drive gamepad.launch.py    # drive via PS4 controller
+```
+
+Details, params, and tests: [sentinel_drive README](ros2_ws/src/sentinel_drive/README.md).
