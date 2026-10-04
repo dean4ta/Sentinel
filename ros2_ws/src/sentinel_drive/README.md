@@ -13,6 +13,18 @@ Starts `joy_node` (PS4, 20 Hz autorepeat), `gamepad_twist`, `cmd_vel_serial`, `w
 
 Robot-side tuning helpers live in `utils/` at the repo root: `ground_drive_tuning.sh` (record + plot), `slip_compensation_record.sh` / `slip_compensation_replay.sh` (offline slip-compensation comparison).
 
+## Fusion (wheel odom + D435i IMU)
+
+```bash
+ros2 launch sentinel_drive fusion.launch.py    # camera, static TF, EKF
+```
+
+Starts realsense2_camera (gyro+accel only, united `/camera/imu`), the `base_link -> camera_link` static TF (camera mounted upside down: roll 180°), and robot_localization's `ekf_node` (config `ekf.yaml`) fusing wheel velocities + gyro yaw rate, publishing `/wheel_imu_odom_filtered` and `odom -> base_link` TF. Requires `ros-humble-robot-localization` and `ros-humble-realsense2-camera`. Run alongside the drive stack; verify the IMU topic matches `ekf.yaml` first:
+
+```bash
+ros2 topic echo --once /camera/imu | head -20
+```
+
 ## Tests
 
 ```bash
