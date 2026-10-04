@@ -89,7 +89,7 @@ wheel_slip_detector:
                                    # must beat every peer's excess by this
                                    # (slip beats target while loaded peers lag)
     alpha_suspicious: 0.20         # confidence decay rate when suspicious (fast)
-    alpha_recover: 0.02            # confidence recovery rate (slow, hysteresis)
+    alpha_recover: 0.05            # confidence recovery rate (slow, hysteresis)
 
 wheel_odometry:
   ros__parameters:
