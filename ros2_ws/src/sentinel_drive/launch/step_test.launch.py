@@ -1,18 +1,12 @@
-# One-command step test: starts cmd_vel_serial, starts rosbag recording,
-# then (2 s later, once the bag is listening) runs the step test node.
-# The delay keeps every step's data in the bag from t=0.
+# One-command step test: starts cmd_vel_serial + rosbag, then (2 s later,
+# once the bag is listening) the step test node. Ends by itself 1 s after
+# the last step; data/step_test_latest symlinks the newest recording.
 #
 # Usage (from repo root, robot on blocks):
-#   ros2 launch sentinel_drive step_test.launch.py \
-#       wheel:=FL steps:="0.2,5;0.5,10;1.0,5;0,1;-1.0,10" sine:="2.0,10,10"
+#   ros2 launch sentinel_drive step_test.launch.py wheel:=FL \
+#       steps:="0.2,5;0.5,10;1.0,5;0,1;-1.0,10" sine:="2.0,10,10"
 #   ros2 launch sentinel_drive step_test.launch.py wheel:=ALL
-#       (all four wheels together via /cmd_vel; robot must be on blocks)
-# sine is "amp_mps,period_s,duration_s"; defaults to one full 10 s cycle
-# at +/-2 m/s.
-#
-# The launch ends by itself: 1 s after the test node finishes its last
-# step, everything shuts down and the bag closes cleanly. A symlink
-# data/step_test_latest always points at the newest recording:
+# sine = "amp_mps,period_s,duration_s"; analyze with:
 #   python analyze_step_test.py ../data/step_test_latest --wheel FL ...
 
 from datetime import datetime

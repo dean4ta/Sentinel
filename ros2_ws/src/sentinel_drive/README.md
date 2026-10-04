@@ -1,64 +1,91 @@
 # sentinel_drive
 
-Gamepad drive control: `/joy` → `/cmd_vel` → Pico serial. See workspace [README](../../README.md) for build steps.
+Gamepad drive stack: `/joy` → `/cmd_vel` → Pico serial, plus slip detection and wheel odometry. See workspace [README](../../README.md) for build steps.
 
 ## Run
 
 ```bash
-ros2 launch sentinel_drive gamepad.launch.py
+ros2 launch sentinel_drive gamepad.launch.py            # drive, no recording
+ros2 launch sentinel_drive gamepad.launch.py record:=true   # + rosbag
 ```
 
-Starts `joy_node` (PS4 gamepad, 20Hz autorepeat), `gamepad_twist`, and `cmd_vel_serial`. Node params load from `config/drive_params.yaml`.
+Starts `joy_node` (PS4, 20 Hz autorepeat), `gamepad_twist`, `cmd_vel_serial`, `wheel_slip_detector`, `wheel_odometry`. Params load from `config/drive_params.yaml`. In recording mode, any button press (e.g. X) on the controller ends the run and closes the bag.
 
-## Config
+Robot-side tuning helpers live in `utils/` at the repo root: `ground_drive_tuning.sh` (record + plot), `slip_compensation_record.sh` / `slip_compensation_replay.sh` (offline slip-compensation comparison).
 
-`config/drive_params.yaml` — all params below live here. Edit + relaunch; no CLI overrides needed.
+## Tests
 
-## Calibration
-
-TODO: PWM signals are not yet calibrated to actual velocity in SI units. `/cmd_vel` values are unitless drive commands in [-1,1]; need measurement of robot speed (m/s, rad/s) per command level and a mapping to true SI values.
-
-## Measured wheel variance (reference)
-
-Encoder magnitudes during forward drive, 2026-09-24 (cumulative counts, sign = side convention):
-
+```bash
+python3 test/test_wheel_consistency.py   # slip detector math
+python3 test/test_odometry_math.py       # odometry math
 ```
-fl: -56667
-fr:  35954
-bl: -17136
-br:  31146
-```
-
-Left wheels negative, right positive (encoder mounting faces opposite ways) — signs are consistent, not a bug. Magnitude spread is the problem: FL fastest, BL slowest (~0.3× FL). Left-side total exceeds right → robot veers right. Root cause for per-wheel direct control + gain correction (see wheel-gain plan).
 
 ## Nodes
 
-`gamepad_twist`: subscribes `/joy`, maps axes (drive=axes[1], strafe=axes[0], rotate=axes[2]) with deadzone, publishes `geometry_msgs/Twist` on `/cmd_vel` in SI units (linear.x=drive m/s, linear.y=strafe m/s, angular.z=rotate rad/s), scaled by the same V_MAX ceilings `cmd_vel_serial` normalizes against.
+- `gamepad_twist` — `/joy` → `geometry_msgs/Twist` on `/cmd_vel` (SI: linear.x/y m/s, angular.z rad/s), deadzone + per-axis invert + rotate clamp + speed scale.
+- `cmd_vel_serial` — `/cmd_vel` → mecanum IK → per-wheel PID+ff → `"fl,fr,bl,br\n"` over USB serial to the Pico. Reads encoder lines back, publishes `EncoderCounts` on `/encoder` and `WheelSpeeds` (target/measured/cmd rpm) on `/wheel_speeds`. Sole owner of the serial port. `/wheel_cmd` debug topic ("FL 30" = 30 rpm) overrides `/cmd_vel` while fresh.
+- `wheel_slip_detector` — leave-one-out mecanum consistency on `/wheel_speeds` (FK from 3 wheels → predict 4th → residual). Asymmetric + sign-aware: only overspeeding wheels are suspicious; target-excess gate attributes slip and kills leave-one-out smear; tracking-error advantage scales the score. Publishes `WheelConsistency` (Header + per-wheel confidence 0-1 + residual m/s) on `/wheel_consistency`, filtered with asymmetric rates (fast decay, slow recovery), processed once per `/wheel_speeds` sample. Math: `wheel_consistency.py`.
+- `wheel_odometry` — `/wheel_speeds` + `/wheel_consistency` → confidence-weighted ridge-regularised LS twist → integrated pose → `nav_msgs/Odometry` on `/wheel_odom`. Unobservable directions fall back to the previous estimate when wheels are distrusted. No TF (future fusion node owns odom→base). Math: `odometry_math.py`.
 
-`cmd_vel_serial`: bidirectional serial gateway. Writes mecanum IK wheel commands from `/cmd_vel` (per-wheel `fl,fr,bl,br` floats) to the Pico (channel remap + signs for Sentinel 1 wiring). Reads encoder count lines back and publishes `sentinel_msgs/EncoderCounts` (fl, fr, bl, br ints) on `/encoder`. Must be the only process holding the serial port.
+## Params
 
-## Params — gamepad_twist
+All in `config/drive_params.yaml`. Edit + relaunch.
+
+### gamepad_twist
 
 | Param | Default | Meaning |
 |---|---|---|
 | `deadzone` | `0.05` | joystick deadzone, then rescaled |
 | `invert_strafe` | `false` | flips strafe sign |
 | `invert_rotate` | `false` | flips rotation direction |
-| `rotate_limit` | `2.5` | clamps rotation, rad/s |
-| `speed_scale` | `1.0` | scales all speeds, [0,1] |
+| `rotate_limit` | `6.0` | clamps rotation, rad/s |
+| `speed_scale` | `0.5` | scales all speeds, [0,1] |
+| `exit_on_x` | `false` | any button press ends the run (record mode sets true) |
 
-## Params — cmd_vel_serial
+### cmd_vel_serial
 
 | Param | Default | Meaning |
 |---|---|---|
-| `serial_port` | `/dev/ttyACM0` | Pico USB serial device |
+| `serial_port` | `/dev/sentinel_pico` | Pico USB serial device |
 | `baud` | `460800` | serial baud |
-| `publish_rate` | `20.0` | Hz of serial writes |
+| `publish_rate` | `50.0` | Hz of serial writes |
 | `ik_wheelbase_m` | `0.35` | half-track + half-wheelbase (m), mecanum IK geometry |
 | `ik_roller_swap` | `false` | flips strafe/rotate IK terms for the opposite diagonal roller pairing |
+| `pid_enabled` | `true` | PID block enable (independent of feed-forward) |
+| `feed_forward_enabled` | `true` | ff block enable (independent of PID) |
+| `{wheel}_kp/_ki/_kd` | per wheel | PID gains, error rpm → normalized PWM |
+| `{wheel}_kS/_kV` | per wheel | ff: `u = kS*sign(v_ref) + kV*v_ref` |
+| `{wheel}_output_limit` | per wheel | cap on commanded PWM |
+| `{wheel}_ema_alpha` | per wheel | measured-rpm EMA blend |
 
-Example override:
+### wheel_slip_detector
 
-```bash
-ros2 run sentinel_drive cmd_vel_serial --ros-args -p serial_port:=/dev/ttyACM1
-```
+| Param | Default | Meaning |
+|---|---|---|
+| `wheel_circumference_m` | `0.44` | rpm → m/s conversion |
+| `residual_threshold_mps` | `0.05` | residual (projected onto direction of travel) below this is ignored |
+| `residual_scale_mps` | `0.15` | residual beyond threshold+this = full suspicion |
+| `tracking_scale_mps` | `0.30` | tracking-error advantage over peer median that fully endorses suspicion |
+| `peer_margin_mps` | `0.03` | wheel's target-excess must beat every peer's by this to count as suspicious |
+| `alpha_suspicious` | `0.20` | confidence decay rate when suspicious (fast) |
+| `alpha_recover` | `0.05` | confidence recovery rate (slow, hysteresis) |
+
+### wheel_odometry
+
+| Param | Default | Meaning |
+|---|---|---|
+| `wheel_circumference_m` | `0.44` | same rpm → m/s conversion |
+| `lxy_m` | `0.362` | half-track + half-wheelbase; must match `ik_wheelbase_m` |
+| `weight_floor` | `0.05` | distrusted wheel keeps this much weight |
+| `ridge` | `0.05` | prior pull on unobservable directions |
+| `wheel_noise_mps` | `0.02` | per-wheel speed noise, feeds covariance |
+| `degraded_min_eig` | `0.5` | min eig of AᵀWA below this = degraded |
+| `confidence_timeout_s` | `0.2` | stale confidences → equal weights |
+| `max_dt_s` | `0.2` | longer gaps skip integration |
+| `odom_frame` / `base_frame` | `odom` / `base_link` | frame names |
+
+## Known gaps
+
+- `V_MAX_LINEAR_MPS` / `V_MAX_ANGULAR_RADPS` / `WHEEL_MAX_RPM` in `cmd_vel_serial.py` are estimates (TODO: measure).
+- `lxy_m` (0.362) vs `ik_wheelbase_m` (0.35) disagree ~3% on yaw; measure and unify.
+- Mecanum roller slip makes strafe/rotate odometry drift even when healthy — validate against ground truth.

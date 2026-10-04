@@ -7,6 +7,10 @@ Usage (from utils/, venv active):
   python analyze_step_test.py ../data/step_test_latest \
       --wheel ALL -o ../data   # writes {fl,fr,bl,br}_step.png
 
+Also handles gamepad.launch.py bags (no /step_events): the per-step
+encoder-average overlay is skipped automatically when no step events
+are present.
+
 Uses the `rosbags` pip package; the sentinel_msgs/WheelSpeeds definition
 is registered locally so no ROS install is needed.
 """
@@ -68,6 +72,22 @@ STEP_MSGDEF = (
     'float32 target_mps\n'
     'bool sine\n'
 )
+
+WC_MSGTYPE = 'sentinel_msgs/msg/WheelConsistency'
+
+WC_MSGDEF = (
+    'std_msgs/Header header\n'
+    'float32 fl_confidence\n'
+    'float32 fr_confidence\n'
+    'float32 bl_confidence\n'
+    'float32 br_confidence\n'
+    'float32 fl_residual\n'
+    'float32 fr_residual\n'
+    'float32 bl_residual\n'
+    'float32 br_residual\n'
+)
+
+ODOM_MSGTYPE = 'nav_msgs/msg/Odometry'  # built into the ROS2 typestore
 
 # Encoder count sign during forward motion (mirrored mounting).
 ENC_DIR = {'FL': -1.0, 'FR': 1.0, 'BL': -1.0, 'BR': 1.0}
@@ -186,7 +206,7 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
     fig.suptitle(
         f"{pid_txt}  |  {ff_txt}  |  "
         f"output_limit={params.get(w + '_output_limit', '?')}, "
-        f"ema_alpha={params.get('rpm_ema_alpha', '?')}",
+        f"ema_alpha={params.get(w + '_ema_alpha', '?')}",
         fontsize=9)
     ax_rpm.plot(t, raw_meas, label='measured raw', color='tab:blue',
                 alpha=0.12, lw=0.8)
@@ -196,7 +216,7 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
     ax_rpm.plot(t, measured, label='measured m/s', alpha=0.8)
     ax_rpm.set_ylabel('m/s')
     ax_rpm.set_ylim(-2.5, 2.5)
-    ax_rpm.set_title(f'{wheel} step response')
+    ax_rpm.set_title(f'{wheel} response')
     ax_rpm.legend()
     ax_rpm.grid(True, alpha=0.3)
 
@@ -232,6 +252,110 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
     print(f'wrote {out_path}')
 
 
+def extract_consistency(bag_dir):
+    """/wheel_consistency -> (ts, {wheel: confidence}, {wheel: residual}).
+    Empty lists if the topic is absent (step-test bags)."""
+    typestore = get_typestore(Stores.ROS2_HUMBLE)
+    typestore.register(get_types_from_msg(WC_MSGDEF, WC_MSGTYPE))
+    ts = []
+    confs = {w: [] for w in TARGET_FIELDS}
+    resids = {w: [] for w in TARGET_FIELDS}
+    with Reader(bag_dir) as reader:
+        for conn, ts_, raw in reader.messages():
+            if conn.msgtype != WC_MSGTYPE:
+                continue
+            msg = typestore.deserialize_cdr(raw, conn.msgtype)
+            ts.append(ts_)
+            for w in TARGET_FIELDS:
+                confs[w].append(getattr(msg, w.lower() + '_confidence'))
+                resids[w].append(getattr(msg, w.lower() + '_residual'))
+    return ts, confs, resids
+
+
+def plot_consistency(ts, confs, resids, out_path):
+    """All four wheels: confidence (0-1) + residual (m/s), one figure."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    t0 = ts[0]
+    t = [(x - t0) / 1e9 for x in ts]
+    params = load_params()
+    fig, (ax_conf, ax_res) = plt.subplots(
+        2, 1, figsize=(12, 8), sharex=True)
+    fig.suptitle(
+        "wheel slip detector: threshold="
+        f"{params.get('residual_threshold_mps', '?')}, scale="
+        f"{params.get('residual_scale_mps', '?')}, tracking_scale="
+        f"{params.get('tracking_scale_mps', '?')}, margin="
+        f"{params.get('peer_margin_mps', '?')}, alpha="
+        f"{params.get('alpha_suspicious', '?')}/"
+        f"{params.get('alpha_recover', '?')}",
+        fontsize=9)
+    for w in TARGET_FIELDS:
+        ax_conf.plot(t, confs[w], label=w, lw=1.5)
+        ax_res.plot(t, resids[w], label=w, lw=0.8, alpha=0.8)
+    ax_conf.set_ylabel('confidence')
+    ax_conf.set_ylim(-0.05, 1.05)
+    ax_conf.set_title('wheel consistency (1.0 = trusted)')
+    ax_conf.legend()
+    ax_conf.grid(True, alpha=0.3)
+    ax_res.set_ylabel('residual m/s')
+    ax_res.set_xlabel('time (s)')
+    ax_res.legend()
+    ax_res.grid(True, alpha=0.3)
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    plt.savefig(out_path, dpi=150)
+    print(f'wrote {out_path}')
+
+
+def extract_odom(bag_dir):
+    """/wheel_odom -> (ts, xs, ys). Empty if the topic is absent."""
+    typestore = get_typestore(Stores.ROS2_HUMBLE)
+    ts = []
+    xs = []
+    ys = []
+    with Reader(bag_dir) as reader:
+        for conn, ts_, raw in reader.messages():
+            if conn.msgtype != ODOM_MSGTYPE:
+                continue
+            msg = typestore.deserialize_cdr(raw, conn.msgtype)
+            ts.append(ts_)
+            xs.append(msg.pose.pose.position.x)
+            ys.append(msg.pose.pose.position.y)
+    return ts, xs, ys
+
+
+def plot_odom(ts, xs, ys, out_path):
+    """2D trajectory, line colored from start (viridis start) to end."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import LineCollection
+    import numpy as np
+
+    t0 = ts[0]
+    t = np.array([(x - t0) / 1e9 for x in ts])
+    pts = np.array([xs, ys]).T.reshape(-1, 1, 2)
+    segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
+    lc = LineCollection(segs, cmap='viridis', norm=plt.Normalize(t[0], t[-1]))
+    lc.set_array(t[:-1])
+    lc.set_linewidth(1.5)
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.add_collection(lc)
+    ax.autoscale()
+    ax.set_aspect('equal')
+    ax.set_xlabel('x (m)')
+    ax.set_ylabel('y (m)')
+    ax.set_title(f'wheel odometry path ({t[-1]:.1f} s)')
+    ax.grid(True, alpha=0.3)
+    fig.colorbar(lc, ax=ax, label='time (s)')
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    print(f'wrote {out_path}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('bag_dir')
@@ -253,15 +377,30 @@ def main():
                 raise SystemExit(1)
             plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts,
                  events, w, out)
-        return
+    else:
+        ts, targets, measured, raw_meas, cmds, enc_ts, counts, events = \
+            extract(args.bag_dir, args.wheel)
+        if not ts:
+            print(f'no WheelSpeeds messages found in {args.bag_dir}',
+                  file=sys.stderr)
+            raise SystemExit(1)
+        plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
+             args.wheel, args.out)
 
-    ts, targets, measured, raw_meas, cmds, enc_ts, counts, events = extract(
-        args.bag_dir, args.wheel)
-    if not ts:
-        print(f'no WheelSpeeds messages found in {args.bag_dir}', file=sys.stderr)
-        raise SystemExit(1)
-    plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
-         args.wheel, args.out)
+    # Optional: /wheel_consistency figure alongside the step plots,
+    # skipped silently when the bag has no such topic.
+    cts, confs, resids = extract_consistency(args.bag_dir)
+    if cts:
+        out = str(Path(args.out if args.wheel == 'ALL'
+                       else Path(args.out).parent) / 'consistency.png')
+        plot_consistency(cts, confs, resids, out)
+
+    # Optional: /wheel_odom 2D trajectory, same skip rules.
+    ots, oxs, oys = extract_odom(args.bag_dir)
+    if ots:
+        out = str(Path(args.out if args.wheel == 'ALL'
+                       else Path(args.out).parent) / 'odometry.png')
+        plot_odom(ots, oxs, oys, out)
 
 
 if __name__ == '__main__':

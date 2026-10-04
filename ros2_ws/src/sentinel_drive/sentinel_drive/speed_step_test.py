@@ -1,22 +1,18 @@
-# Step-response test node: drives wheels through a list of
-# (speed m/s, duration s) pairs, then an optional sine sweep
-# "amp_mps,period_s,duration_s".
+# Step-response test: drives wheels through (speed m/s, duration s)
+# pairs, then an optional sine sweep "amp_mps,period_s,duration_s".
 #
 # WHEEL = FL/FR/BL/BR publishes /wheel_cmd (one wheel at a time).
-# WHEEL = ALL publishes Twist on /cmd_vel (linear.x only) so all four
-# wheels run the same profile together through the mecanum IK.
+# WHEEL = ALL publishes Twist on /cmd_vel (linear.x only), all four
+# wheels together through the mecanum IK. Robot on blocks either way.
 #
 # Usage:
 #   ros2 run sentinel_drive speed_step_test FL "0.2,5;0.5,10;1.0,5;0,1;-1.0,10" "2.0,10,10"
 #   ros2 run sentinel_drive speed_step_test ALL "0.2,5;0.5,10" ""
 #
-# Publish continuously (20 Hz) so cmd_vel_serial's /wheel_cmd freshness
-# never expires mid-step. Record with rosbag while it runs:
-#   ros2 bag record /wheel_speeds /encoder -o data/step_test_<date>
-#
-# Robot on blocks. Single-wheel m/s -> rpm uses the nominal 140 mm wheel
-# circumference; ALL mode goes through the node's V_MAX_LINEAR_MPS
-# scaling (same value to within 1%).
+# Publishes continuously (20 Hz) so /wheel_cmd freshness never expires.
+# Record alongside: ros2 bag record /wheel_speeds /encoder -o data/step_test_<date>
+# Single-wheel rpm uses the nominal 0.44 m circumference; ALL mode goes
+# through V_MAX_LINEAR_MPS scaling (same to within 1%).
 
 import math
 import sys
@@ -69,8 +65,7 @@ class SpeedStepTest(Node):
 
     def _send(self, mps):
         if self.wheel == 'ALL':
-            # Twist through the mecanum IK: linear.x -> same surface speed
-            # on all four wheels. Robot must be on blocks or a stand.
+            # ALL: linear.x -> same surface speed on all four wheels.
             msg = Twist()
             msg.linear.x = mps
         else:
