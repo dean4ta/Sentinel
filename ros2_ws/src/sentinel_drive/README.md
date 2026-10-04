@@ -37,6 +37,8 @@ Left wheels negative, right positive (encoder mounting faces opposite ways) — 
 
 `cmd_vel_serial`: bidirectional serial gateway. Writes mecanum IK wheel commands from `/cmd_vel` (per-wheel `fl,fr,bl,br` floats) to the Pico (channel remap + signs for Sentinel 1 wiring). Reads encoder count lines back and publishes `sentinel_msgs/EncoderCounts` (fl, fr, bl, br ints) on `/encoder`. Must be the only process holding the serial port.
 
+`wheel_slip_detector`: subscribes `/wheel_speeds`, runs a leave-one-out mecanum consistency check (FK from 3 wheels -> predict the 4th -> residual vs measured), publishes `sentinel_msgs/WheelConsistency` (std_msgs/Header + per-wheel confidence 0-1 and residual m/s) on `/wheel_consistency`. Asymmetric and sign-aware: only overspeeding wheels are suspicious (overspeed = larger magnitude along the wheel's direction of travel, so reverse slip also registers); a target-excess gate attributes the slip to the right wheel and kills leave-one-out smear; tracking-error advantage over the peer median scales the score. Filtered with asymmetric rates (fast decay, slow recovery). Processing runs in the subscription callback, so the filter advances once per `/wheel_speeds` sample. Started by `gamepad.launch.py`; no odometry node exists yet — a future one can weight its wheel-odom estimate with these confidences. Math lives in `wheel_consistency.py`, unit tests in `test/test_wheel_consistency.py` (`python3 test/test_wheel_consistency.py`).
+
 ## Params — gamepad_twist
 
 | Param | Default | Meaning |
@@ -56,6 +58,18 @@ Left wheels negative, right positive (encoder mounting faces opposite ways) — 
 | `publish_rate` | `20.0` | Hz of serial writes |
 | `ik_wheelbase_m` | `0.35` | half-track + half-wheelbase (m), mecanum IK geometry |
 | `ik_roller_swap` | `false` | flips strafe/rotate IK terms for the opposite diagonal roller pairing |
+
+## Params — wheel_slip_detector
+
+| Param | Default | Meaning |
+|---|---|---|
+| `wheel_circumference_m` | `0.44` | rpm -> m/s conversion |
+| `residual_threshold_mps` | `0.05` | residual (measured - predicted, projected onto direction of travel) below this is ignored |
+| `residual_scale_mps` | `0.15` | residual beyond threshold+this = full suspicion |
+| `tracking_scale_mps` | `0.30` | tracking-error advantage over peer median that fully endorses suspicion |
+| `peer_margin_mps` | `0.03` | wheel's speed excess over its own target must beat every peer's excess by this to count as suspicious |
+| `alpha_suspicious` | `0.20` | confidence decay rate when suspicious (fast) |
+| `alpha_recover` | `0.02` | confidence recovery rate (slow, hysteresis) |
 
 Example override:
 

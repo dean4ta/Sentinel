@@ -22,4 +22,5 @@ ssh sentinel1@ts_sentinel '
 rm -rf data && \
 scp -r sentinel1@sentinel1-desktop.tail919736.ts.net:/home/sentinel1/dean/Sentinel/data \
   ~/UF/EEL4924_senior_design/project && \
-open data/fl_step.png data/fr_step.png data/bl_step.png data/br_step.png
+open data/fl_step.png data/fr_step.png data/bl_step.png data/br_step.png \
+     data/consistency.png

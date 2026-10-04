@@ -12,6 +12,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/EncoderCounts.msg"
   "msg/WheelSpeeds.msg"
   "msg/StepEvent.msg"
+  "msg/WheelConsistency.msg"
 )
 
 ament_export_dependencies(rosidl_default_runtime)

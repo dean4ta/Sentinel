@@ -73,6 +73,20 @@ STEP_MSGDEF = (
     'bool sine\n'
 )
 
+WC_MSGTYPE = 'sentinel_msgs/msg/WheelConsistency'
+
+WC_MSGDEF = (
+    'std_msgs/Header header\n'
+    'float32 fl_confidence\n'
+    'float32 fr_confidence\n'
+    'float32 bl_confidence\n'
+    'float32 br_confidence\n'
+    'float32 fl_residual\n'
+    'float32 fr_residual\n'
+    'float32 bl_residual\n'
+    'float32 br_residual\n'
+)
+
 # Encoder count sign during forward motion (mirrored mounting).
 ENC_DIR = {'FL': -1.0, 'FR': 1.0, 'BL': -1.0, 'BR': 1.0}
 
@@ -236,6 +250,63 @@ def plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
     print(f'wrote {out_path}')
 
 
+def extract_consistency(bag_dir):
+    """/wheel_consistency -> (ts, {wheel: confidence}, {wheel: residual}).
+    Empty lists if the topic is absent (step-test bags)."""
+    typestore = get_typestore(Stores.ROS2_HUMBLE)
+    typestore.register(get_types_from_msg(WC_MSGDEF, WC_MSGTYPE))
+    ts = []
+    confs = {w: [] for w in TARGET_FIELDS}
+    resids = {w: [] for w in TARGET_FIELDS}
+    with Reader(bag_dir) as reader:
+        for conn, ts_, raw in reader.messages():
+            if conn.msgtype != WC_MSGTYPE:
+                continue
+            msg = typestore.deserialize_cdr(raw, conn.msgtype)
+            ts.append(ts_)
+            for w in TARGET_FIELDS:
+                confs[w].append(getattr(msg, w.lower() + '_confidence'))
+                resids[w].append(getattr(msg, w.lower() + '_residual'))
+    return ts, confs, resids
+
+
+def plot_consistency(ts, confs, resids, out_path):
+    """All four wheels: confidence (0-1) + residual (m/s), one figure."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    t0 = ts[0]
+    t = [(x - t0) / 1e9 for x in ts]
+    params = load_params()
+    fig, (ax_conf, ax_res) = plt.subplots(
+        2, 1, figsize=(12, 8), sharex=True)
+    fig.suptitle(
+        "wheel slip detector: threshold="
+        f"{params.get('residual_threshold_mps', '?')}, scale="
+        f"{params.get('residual_scale_mps', '?')}, tracking_scale="
+        f"{params.get('tracking_scale_mps', '?')}, margin="
+        f"{params.get('peer_margin_mps', '?')}, alpha="
+        f"{params.get('alpha_suspicious', '?')}/"
+        f"{params.get('alpha_recover', '?')}",
+        fontsize=9)
+    for w in TARGET_FIELDS:
+        ax_conf.plot(t, confs[w], label=w, lw=1.5)
+        ax_res.plot(t, resids[w], label=w, lw=0.8, alpha=0.8)
+    ax_conf.set_ylabel('confidence')
+    ax_conf.set_ylim(-0.05, 1.05)
+    ax_conf.set_title('wheel consistency (1.0 = trusted)')
+    ax_conf.legend()
+    ax_conf.grid(True, alpha=0.3)
+    ax_res.set_ylabel('residual m/s')
+    ax_res.set_xlabel('time (s)')
+    ax_res.legend()
+    ax_res.grid(True, alpha=0.3)
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    plt.savefig(out_path, dpi=150)
+    print(f'wrote {out_path}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('bag_dir')
@@ -257,15 +328,23 @@ def main():
                 raise SystemExit(1)
             plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts,
                  events, w, out)
-        return
+    else:
+        ts, targets, measured, raw_meas, cmds, enc_ts, counts, events = \
+            extract(args.bag_dir, args.wheel)
+        if not ts:
+            print(f'no WheelSpeeds messages found in {args.bag_dir}',
+                  file=sys.stderr)
+            raise SystemExit(1)
+        plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
+             args.wheel, args.out)
 
-    ts, targets, measured, raw_meas, cmds, enc_ts, counts, events = extract(
-        args.bag_dir, args.wheel)
-    if not ts:
-        print(f'no WheelSpeeds messages found in {args.bag_dir}', file=sys.stderr)
-        raise SystemExit(1)
-    plot(ts, targets, measured, raw_meas, cmds, enc_ts, counts, events,
-         args.wheel, args.out)
+    # Optional: /wheel_consistency figure alongside the step plots,
+    # skipped silently when the bag has no such topic.
+    cts, confs, resids = extract_consistency(args.bag_dir)
+    if cts:
+        out = str(Path(args.out if args.wheel == 'ALL'
+                       else Path(args.out).parent) / 'consistency.png')
+        plot_consistency(cts, confs, resids, out)
 
 
 if __name__ == '__main__':

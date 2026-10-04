@@ -73,3 +73,20 @@ cmd_vel_serial:
     br_kS: 0.09
     br_kV: 0.96
     br_ema_alpha: 0.8
+
+wheel_slip_detector:
+  ros__parameters:
+    # Leave-one-out mecanum consistency (see wheel_consistency.py).
+    # Sign-aware: overspeed means larger magnitude along the wheel's
+    # direction of travel. Asymmetric: only overspeed is suspicious,
+    # slower wheels stay trusted.
+    wheel_circumference_m: 0.44    # rpm -> m/s (nominal 140 mm mecanum)
+    residual_threshold_mps: 0.05   # residual below this is ignored
+    residual_scale_mps: 0.15       # residual beyond threshold+this = full suspicion
+    tracking_scale_mps: 0.30       # tracking-error advantage over peer median
+                                   # that fully endorses suspicion (m/s)
+    peer_margin_mps: 0.03          # wheel's speed excess over its own target
+                                   # must beat every peer's excess by this
+                                   # (slip beats target while loaded peers lag)
+    alpha_suspicious: 0.20         # confidence decay rate when suspicious (fast)
+    alpha_recover: 0.02            # confidence recovery rate (slow, hysteresis)
