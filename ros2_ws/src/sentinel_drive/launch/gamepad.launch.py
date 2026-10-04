@@ -55,7 +55,7 @@ def generate_launch_description():
 
     bag = ExecuteProcess(
         cmd=['ros2', 'bag', 'record', '/wheel_speeds', '/encoder',
-             '/wheel_consistency', '-o', bag_out],
+             '/wheel_consistency', '/wheel_odom', '-o', bag_out],
         output='screen',
         condition=IfCondition(record),
     )
@@ -89,6 +89,12 @@ def generate_launch_description():
             package='sentinel_drive',
             executable='wheel_slip_detector',
             name='wheel_slip_detector',
+            parameters=[config],
+        ),
+        Node(
+            package='sentinel_drive',
+            executable='wheel_odometry',
+            name='wheel_odometry',
             parameters=[config],
         ),
         bag,

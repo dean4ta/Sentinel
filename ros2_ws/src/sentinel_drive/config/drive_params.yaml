@@ -90,3 +90,21 @@ wheel_slip_detector:
                                    # (slip beats target while loaded peers lag)
     alpha_suspicious: 0.20         # confidence decay rate when suspicious (fast)
     alpha_recover: 0.02            # confidence recovery rate (slow, hysteresis)
+
+wheel_odometry:
+  ros__parameters:
+    # Confidence-weighted mecanum wheel odometry (see odometry_math.py).
+    # Publishes nav_msgs/Odometry on /wheel_odom. No TF here.
+    wheel_circumference_m: 0.44    # same conversion as wheel_slip_detector
+    lxy_m: 0.362                   # half-track + half-wheelbase. Must match
+                                   # cmd_vel_serial's ik_wheelbase_m (0.35
+                                   # right now) or yaw rates disagree ~3%.
+                                   # TODO: measure on the robot, set both.
+    weight_floor: 0.05             # distrusted wheel keeps this much weight
+    ridge: 0.05                    # prior pull on unobservable directions
+    wheel_noise_mps: 0.02          # per-wheel speed noise, feeds covariance
+    degraded_min_eig: 0.5          # min eig of A^T W A below this = degraded
+    confidence_timeout_s: 0.2      # stale confidences -> equal weights
+    max_dt_s: 0.2                  # longer gaps skip integration
+    odom_frame: odom
+    base_frame: base_link

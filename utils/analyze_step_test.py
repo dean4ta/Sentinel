@@ -87,6 +87,8 @@ WC_MSGDEF = (
     'float32 br_residual\n'
 )
 
+ODOM_MSGTYPE = 'nav_msgs/msg/Odometry'  # built into the ROS2 typestore
+
 # Encoder count sign during forward motion (mirrored mounting).
 ENC_DIR = {'FL': -1.0, 'FR': 1.0, 'BL': -1.0, 'BR': 1.0}
 
@@ -307,6 +309,53 @@ def plot_consistency(ts, confs, resids, out_path):
     print(f'wrote {out_path}')
 
 
+def extract_odom(bag_dir):
+    """/wheel_odom -> (ts, xs, ys). Empty if the topic is absent."""
+    typestore = get_typestore(Stores.ROS2_HUMBLE)
+    ts = []
+    xs = []
+    ys = []
+    with Reader(bag_dir) as reader:
+        for conn, ts_, raw in reader.messages():
+            if conn.msgtype != ODOM_MSGTYPE:
+                continue
+            msg = typestore.deserialize_cdr(raw, conn.msgtype)
+            ts.append(ts_)
+            xs.append(msg.pose.pose.position.x)
+            ys.append(msg.pose.pose.position.y)
+    return ts, xs, ys
+
+
+def plot_odom(ts, xs, ys, out_path):
+    """2D trajectory, line colored from start (viridis start) to end."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import LineCollection
+    import numpy as np
+
+    t0 = ts[0]
+    t = np.array([(x - t0) / 1e9 for x in ts])
+    pts = np.array([xs, ys]).T.reshape(-1, 1, 2)
+    segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
+    lc = LineCollection(segs, cmap='viridis', norm=plt.Normalize(t[0], t[-1]))
+    lc.set_array(t[:-1])
+    lc.set_linewidth(1.5)
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.add_collection(lc)
+    ax.autoscale()
+    ax.set_aspect('equal')
+    ax.set_xlabel('x (m)')
+    ax.set_ylabel('y (m)')
+    ax.set_title(f'wheel odometry path ({t[-1]:.1f} s)')
+    ax.grid(True, alpha=0.3)
+    fig.colorbar(lc, ax=ax, label='time (s)')
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    print(f'wrote {out_path}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('bag_dir')
@@ -345,6 +394,13 @@ def main():
         out = str(Path(args.out if args.wheel == 'ALL'
                        else Path(args.out).parent) / 'consistency.png')
         plot_consistency(cts, confs, resids, out)
+
+    # Optional: /wheel_odom 2D trajectory, same skip rules.
+    ots, oxs, oys = extract_odom(args.bag_dir)
+    if ots:
+        out = str(Path(args.out if args.wheel == 'ALL'
+                       else Path(args.out).parent) / 'odometry.png')
+        plot_odom(ots, oxs, oys, out)
 
 
 if __name__ == '__main__':
