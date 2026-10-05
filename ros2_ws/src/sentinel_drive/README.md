@@ -11,7 +11,7 @@ ros2 launch sentinel_drive gamepad.launch.py record:=true   # + rosbag
 
 Starts `joy_node` (PS4, 20 Hz autorepeat), `gamepad_twist`, `cmd_vel_serial`, `wheel_slip_detector`, `wheel_odometry`. Params load from `config/drive_params.yaml`. In recording mode, any button press (e.g. X) on the controller ends the run and closes the bag.
 
-Robot-side tuning helpers live in `utils/` at the repo root: `ground_drive_tuning.sh` (record + plot), `slip_compensation_record.sh` / `slip_compensation_replay.sh` (offline slip-compensation comparison).
+Robot-side tuning helpers live in `utils/` at the repo root: `ground_drive_tuning.sh` (record + plot), `odometry_measurements_record.sh` / `odometry_measurements_replay.sh` (offline odometry pipeline comparison).
 
 ## Fusion (wheel odom + D435i gyro)
 
