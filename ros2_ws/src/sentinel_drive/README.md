@@ -42,11 +42,13 @@ Drive only (no mapping, no realsense):
 ros2 launch sentinel_drive sentinel_bringup.launch.py
 ```
 
-Save the map:
+Save the map (map_saver does not create directories; the built-in
+`/slam_toolbox/save_map` service spins only 2 s for a `/map` message and
+misses the 5 s publish window, so use the standalone saver):
 
 ```bash
-ros2 service call /slam_toolbox/save_map slam_toolbox/srv/SaveMap \
-    "{name: {data: '/home/sentinel1/maps/room'}}"
+mkdir -p ~/maps
+ros2 run nav2_map_server map_saver_cli -f ~/maps/room
 ```
 
 Writes `/home/sentinel1/maps/room.yaml` + `room.pgm` (via the built-in map saver).
