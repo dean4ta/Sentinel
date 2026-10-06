@@ -31,18 +31,24 @@ ros2 topic hz /wheel_odom
 
 ```bash
 source ~/dean/rs2_ws/install/setup.bash      # source-built realsense2_camera (RSUSB)
-ros2 launch sentinel_drive mapping.launch.py # lidar, laser TF, fusion, slam_toolbox
-# second terminal, same env:
-ros2 launch sentinel_drive gamepad.launch.py # drive stack (Pico gateway, odom inputs)
+ros2 launch sentinel_drive sentinel_bringup.launch.py mapping:=true
 ```
 
-`mapping.launch.py` brings up: RPLIDAR A1 driver (`/dev/ttyUSB0`, 115200 baud → `/scan`), `base_link -> laser` static TF (lidar 4 in above base_link, X facing −X: yaw π), the fusion stack, and slam_toolbox online-async mapping (`slam_params_online_async.yaml`: map in `map` frame, base `base_link`, odom `/wheel_imu_odom_filtered`). Drive slowly; loop closure locks in when the robot revisits an area.
+One launch brings up the drive stack, rosbridge (:9090 for Foxglove) and `mapping.launch.py`: RPLIDAR A1 driver (`/dev/ttyUSB0`, 115200 baud → `/scan`), `base_link -> laser` static TF (lidar 4 in above base_link, X facing −X: yaw π), the fusion stack, and slam_toolbox online-async mapping (`slam_params_online_async.yaml`: map in `map` frame, base `base_link`, odom `/wheel_imu_odom_filtered`). Drive slowly; loop closure locks in when the robot revisits an area.
 
-Save the map:
+Drive only (no mapping, no realsense):
 
 ```bash
-ros2 service call /slam_toolbox/save_map slam_toolbox/srv/SaveMap \
-    "{name: {data: '/home/sentinel1/maps/room'}}"
+ros2 launch sentinel_drive sentinel_bringup.launch.py
+```
+
+Save the map (map_saver does not create directories; the built-in
+`/slam_toolbox/save_map` service spins only 2 s for a `/map` message and
+misses the 5 s publish window, so use the standalone saver):
+
+```bash
+mkdir -p ~/maps
+ros2 run nav2_map_server map_saver_cli -f ~/maps/room
 ```
 
 Writes `/home/sentinel1/maps/room.yaml` + `room.pgm` (via the built-in map saver).
