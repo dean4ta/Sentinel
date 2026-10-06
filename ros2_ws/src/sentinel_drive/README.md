@@ -27,6 +27,28 @@ ros2 topic hz /camera/realsense2_camera/gyro/sample
 ros2 topic hz /wheel_odom
 ```
 
+## SLAM mapping (RPLIDAR A1 + fused odom)
+
+```bash
+source ~/dean/rs2_ws/install/setup.bash      # source-built realsense2_camera (RSUSB)
+ros2 launch sentinel_drive mapping.launch.py # lidar, laser TF, fusion, slam_toolbox
+# second terminal, same env:
+ros2 launch sentinel_drive gamepad.launch.py # drive stack (Pico gateway, odom inputs)
+```
+
+`mapping.launch.py` brings up: RPLIDAR A1 driver (`/dev/ttyUSB0`, 115200 baud → `/scan`), `base_link -> laser` static TF (lidar 4 in above base_link, X facing −X: yaw π), the fusion stack, and slam_toolbox online-async mapping (`slam_params_online_async.yaml`: map in `map` frame, base `base_link`, odom `/wheel_imu_odom_filtered`). Drive slowly; loop closure locks in when the robot revisits an area.
+
+Save the map:
+
+```bash
+ros2 service call /slam_toolbox/save_map slam_toolbox/srv/SaveMap \
+    "{name: {data: '/home/sentinel1/maps/room'}}"
+```
+
+Writes `/home/sentinel1/maps/room.yaml` + `room.pgm` (via the built-in map saver).
+
+Live view from Mac (no ROS needed): Foxglove Studio → Open connection → Rosbridge → `ws://ts_sentinel:9090` (rosbridge launched with `ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090`). 3D panel: fixed frame `map`, layers `/scan` + `/map`. The scan tracks the robot only while the fusion stack is up (odom → base_link TF).
+
 ## Tests
 
 ```bash

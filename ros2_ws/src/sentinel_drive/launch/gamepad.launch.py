@@ -9,7 +9,7 @@ from datetime import datetime
 import os
 
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, OpaqueFunction, Shutdown
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction, Shutdown
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration, PythonExpression
@@ -36,6 +36,9 @@ def generate_launch_description():
     )
 
     record = LaunchConfiguration('record', default='false')
+    # Declared explicitly: arm_x_exit reads launch_configurations['record']
+    # directly, which only holds values for declared args.
+    declare_record = DeclareLaunchArgument('record', default_value=record)
     bag_out = LaunchConfiguration(
         'bag_out',
         default='data/gamepad_' + datetime.now().strftime('%Y-%m-%d_%H%M'))
@@ -73,6 +76,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        declare_record,
         Node(
             package='joy',
             executable='joy_node',
