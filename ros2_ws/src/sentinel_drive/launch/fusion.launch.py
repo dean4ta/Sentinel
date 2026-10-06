@@ -57,6 +57,9 @@ def generate_launch_description():
             'enable_accel': False,
             'unite_imu_method': 0,
             'publish_tf': True,
+            # Gyro measurement covariance (rad/s)^2. Default 0.01; lower
+            # = EKF trusts gyro more (yaw follows IMU, wheels keep vx/vy).
+            'angular_velocity_cov': 0.0001,
         }],
         output='screen',
     )

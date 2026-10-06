@@ -16,16 +16,18 @@ ssh sentinel1@ts_sentinel '
   colcon build && \
   source install/setup.bash && \
   source ~/dean/rs2_ws/install/setup.bash && \
-  cd .. && \
-  ros2 launch sentinel_drive fusion.launch.py >/tmp/fusion_record.log 2>&1 & \
-  FUSION=$! && \
-  sleep 12 && \
+  cd ..
+  ros2 launch sentinel_drive fusion.launch.py >/tmp/fusion_record.log 2>&1 &
+  FUSION=$!
+  sleep 12
   ros2 launch sentinel_drive gamepad.launch.py record:=true \
     bag_out:=data/odom_input \
-    record_topics:="/wheel_speeds /encoder /camera/realsense2_camera/gyro/sample /tf_static" && \
-  kill -INT $FUSION && sleep 2 && \
-  pkill -INT -f "realsense2_camera_nod[e]" && \
-  pkill -INT -f "ekf_nod[e]" && \
-  pkill -INT -f "static_transform_publishe[r]" ; \
-  echo "record done"
+    record_topics:="/wheel_speeds /encoder /camera/realsense2_camera/gyro/sample /tf_static"
+  RC=$?
+  kill -INT $FUSION 2>/dev/null
+  sleep 2
+  pkill -INT -f "realsense2_camera_nod[e]"
+  pkill -INT -f "ekf_nod[e]"
+  pkill -INT -f "static_transform_publishe[r]"
+  exit $RC
 '
