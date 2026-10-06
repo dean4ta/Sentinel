@@ -31,12 +31,16 @@ ros2 topic hz /wheel_odom
 
 ```bash
 source ~/dean/rs2_ws/install/setup.bash      # source-built realsense2_camera (RSUSB)
-ros2 launch sentinel_drive mapping.launch.py # lidar, laser TF, fusion, slam_toolbox
-# second terminal, same env:
-ros2 launch sentinel_drive gamepad.launch.py # drive stack (Pico gateway, odom inputs)
+ros2 launch sentinel_drive sentinel_bringup.launch.py mapping:=true
 ```
 
-`mapping.launch.py` brings up: RPLIDAR A1 driver (`/dev/ttyUSB0`, 115200 baud → `/scan`), `base_link -> laser` static TF (lidar 4 in above base_link, X facing −X: yaw π), the fusion stack, and slam_toolbox online-async mapping (`slam_params_online_async.yaml`: map in `map` frame, base `base_link`, odom `/wheel_imu_odom_filtered`). Drive slowly; loop closure locks in when the robot revisits an area.
+One launch brings up the drive stack, rosbridge (:9090 for Foxglove) and `mapping.launch.py`: RPLIDAR A1 driver (`/dev/ttyUSB0`, 115200 baud → `/scan`), `base_link -> laser` static TF (lidar 4 in above base_link, X facing −X: yaw π), the fusion stack, and slam_toolbox online-async mapping (`slam_params_online_async.yaml`: map in `map` frame, base `base_link`, odom `/wheel_imu_odom_filtered`). Drive slowly; loop closure locks in when the robot revisits an area.
+
+Drive only (no mapping, no realsense):
+
+```bash
+ros2 launch sentinel_drive sentinel_bringup.launch.py
+```
 
 Save the map:
 
