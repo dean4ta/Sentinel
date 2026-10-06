@@ -11,7 +11,21 @@ ros2 launch sentinel_drive gamepad.launch.py record:=true   # + rosbag
 
 Starts `joy_node` (PS4, 20 Hz autorepeat), `gamepad_twist`, `cmd_vel_serial`, `wheel_slip_detector`, `wheel_odometry`. Params load from `config/drive_params.yaml`. In recording mode, any button press (e.g. X) on the controller ends the run and closes the bag.
 
-Robot-side tuning helpers live in `utils/` at the repo root: `ground_drive_tuning.sh` (record + plot), `slip_compensation_record.sh` / `slip_compensation_replay.sh` (offline slip-compensation comparison).
+Robot-side tuning helpers live in `utils/` at the repo root: `ground_drive_tuning.sh` (record + plot), `odometry_measurements_record.sh` / `odometry_measurements_replay.sh` (offline odometry pipeline comparison).
+
+## Fusion (wheel odom + D435i gyro)
+
+```bash
+source ~/dean/rs2_ws/install/setup.bash      # source-built realsense2_camera (RSUSB)
+ros2 launch sentinel_drive fusion.launch.py  # camera, static TF, EKF
+```
+
+Starts realsense2_camera (gyro only, raw `/camera/realsense2_camera/gyro/sample`), the `base_link -> camera_link` static TF (camera mounted upside down: roll 180°), and robot_localization's `ekf_node` (config `ekf.yaml`) fusing wheel velocities + gyro yaw rate, publishing `/wheel_imu_odom_filtered` and `odom -> base_link` TF. Run alongside the drive stack. Verify feeds first:
+
+```bash
+ros2 topic hz /camera/realsense2_camera/gyro/sample
+ros2 topic hz /wheel_odom
+```
 
 ## Tests
 

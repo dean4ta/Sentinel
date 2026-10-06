@@ -45,4 +45,32 @@ pip install rosbags matplotlib
 - `analyze_step_test.py` — reads a rosbag (via `rosbags`), extracts target +
   measured rpm for one wheel from `/wheel_speeds`, writes a matplotlib PNG.
 
+## Odometry measurement workflow
+
+Record raw inputs once (drive a route; X on the PS4 ends the run):
+
+```bash
+./utils/odometry_measurements_record.sh
+```
+
+Records `/wheel_speeds`, `/encoder`, `/camera/realsense2_camera/gyro/sample`
+and `/tf_static` to `data/odom_input` on the Orin. Gyro-only by design:
+the EKF fuses yaw rate, nothing else from the IMU.
+
+Replay offline (4 passes, on the Orin):
+
+```bash
+./utils/odometry_measurements_replay.sh [input_bag] [rate]
+```
+
+| Pass | Pipeline | Output |
+|---|---|---|
+| `raw_odom` | wheel_odometry | `/wheel_odom` |
+| `slip_odom` | slip detector + wheel_odometry | `/wheel_odom` |
+| `raw_ekf` | wheel_odometry + ekf_node | `/wheel_imu_odom_filtered` |
+| `slip_ekf` | slip detector + wheel_odometry + ekf_node | `/wheel_imu_odom_filtered` |
+
+Pulls the four result bags back and plots them overlaid
+(`data/replay/compare.png`).
+
 Robot on blocks for all step tests.

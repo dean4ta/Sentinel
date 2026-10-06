@@ -102,7 +102,7 @@ wheel_odometry:
                                    # TODO: measure on the robot, set both.
     weight_floor: 0.05             # distrusted wheel keeps this much weight
     ridge: 0.05                    # prior pull on unobservable directions
-    wheel_noise_mps: 0.02          # per-wheel speed noise, feeds covariance
+    wheel_noise_mps: 0.1            # per-wheel speed noise, feeds covariance
     degraded_min_eig: 0.5          # min eig of A^T W A below this = degraded
     confidence_timeout_s: 0.2      # stale confidences -> equal weights
     max_dt_s: 0.2                  # longer gaps skip integration
