@@ -36,10 +36,10 @@ ros2 launch sentinel_drive sentinel_bringup.launch.py mapping:=true
 
 One launch brings up the drive stack, rosbridge (:9090 for Foxglove) and `mapping.launch.py`: RPLIDAR A1 driver (`/dev/ttyUSB0`, 115200 baud → `/scan`), `base_link -> laser` static TF (lidar 4 in above base_link, X facing −X: yaw π), the fusion stack, and slam_toolbox online-async mapping (`slam_params_online_async.yaml`: map in `map` frame, base `base_link`, odom `/wheel_imu_odom_filtered`). Drive slowly; loop closure locks in when the robot revisits an area.
 
-Drive only (no mapping, no realsense):
+Drive only (no lidar, no realsense, no localization):
 
 ```bash
-ros2 launch sentinel_drive sentinel_bringup.launch.py
+ros2 launch sentinel_drive sentinel_bringup.launch.py localize:=false
 ```
 
 Save the map (map_saver does not create directories; the built-in
@@ -52,6 +52,20 @@ ros2 run nav2_map_server map_saver_cli -f ~/maps/room
 ```
 
 Writes `/home/sentinel1/maps/room.yaml` + `room.pgm` (via the built-in map saver).
+
+## Localization (AMCL on a saved map)
+
+```bash
+source ~/dean/rs2_ws/install/setup.bash      # realsense driver for the EKF gyro
+# drive stack + lidar + fusion + rosbridge + AMCL localization (default)
+ros2 launch sentinel_drive sentinel_bringup.launch.py
+# or AMCL alone, alongside an already-running bringup:
+ros2 launch sentinel_drive localization.launch.py
+```
+
+The default bringup launches the same lidar + EKF feeds as mapping (`mapping.launch.py slam:=false`) so AMCL gets `/scan` and the `odom -> base_link` TF. It serves the map (`map_file`, default `/home/sentinel1/maps/robotics_lab.yaml`) via nav2 map_server and localizes with amcl (`amcl_params.yaml`: likelihood-field model, omni motion model for mecanum odom, fused `/wheel_imu_odom_filtered` odom, 12 m laser range). amcl publishes `map -> odom` and `/amcl_pose`. Give it the start pose once: Foxglove 3D panel → right-click → Publish pose estimate (or RViz 2D Pose Estimate). Until then there is no `map -> odom` TF and no robot pose appears.
+
+Foxglove checklist: 3D panel fixed frame `map`, add topic layers `/map`, `/scan`, `/particlecloud` (AMCL particles), and toggle the `odom`/`base_link`/`laser` frames on under Frames. Then publish the pose estimate.
 
 Live view from Mac (no ROS needed): Foxglove Studio → Open connection → Rosbridge → `ws://ts_sentinel:9090` (rosbridge launched with `ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090`). 3D panel: fixed frame `map`, layers `/scan` + `/map`. The scan tracks the robot only while the fusion stack is up (odom → base_link TF).
 

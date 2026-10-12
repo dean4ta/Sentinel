@@ -11,14 +11,21 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 SHARE = get_package_share_directory('sentinel_drive')
 
 
 def generate_launch_description():
+    # slam:=false keeps lidar + EKF (localization needs the same
+    # /scan + odom -> base_link feeds as mapping) without slam_toolbox.
+    slam = LaunchConfiguration('slam', default='true')
+    declare_slam = DeclareLaunchArgument('slam', default_value=slam)
+
     # Wheel odom + gyro EKF: publishes /wheel_imu_odom_filtered and
     # odom -> base_link, the TF chain SLAM registers scans against.
     # Its SetEnvironmentVariable (RSUSB lib path) applies launch-wide.
@@ -52,13 +59,15 @@ def generate_launch_description():
                    '--child-frame-id', 'laser'],
     )
 
-    slam = IncludeLaunchDescription(
+    slam_include = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(get_package_share_directory('slam_toolbox'),
                          'launch', 'online_async_launch.py')),
         launch_arguments={
             'slam_params_file': os.path.join(
                 SHARE, 'config', 'slam_params_online_async.yaml')}.items(),
+        condition=IfCondition(slam),
     )
 
-    return LaunchDescription([fusion, rplidar, laser_tf, slam])
+    return LaunchDescription(
+        [declare_slam, fusion, rplidar, laser_tf, slam_include])
