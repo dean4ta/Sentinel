@@ -11,7 +11,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -34,19 +34,25 @@ def generate_launch_description():
             os.path.join(SHARE, 'launch', 'fusion.launch.py')))
 
     # RPLIDAR A1 over the CP210x serial adapter (115200 baud).
-    rplidar = Node(
-        package='rplidar_ros',
-        executable='rplidar_node',
-        name='rplidar_node',
-        parameters=[{
-            'channel_type': 'serial',
-            'serial_port': '/dev/ttyUSB0',
-            'serial_baudrate': 115200,
-            'frame_id': 'laser',
-            'inverted': False,
-            'angle_compensate': True,
-        }],
-        output='screen',
+    # Started 4 s late: starting it concurrently with the realsense
+    # driver's USB init killed the SDK with SIGABRT twice (Orin Nano,
+    # both devices on one USB controller).
+    rplidar = TimerAction(
+        period=4.0,
+        actions=[Node(
+            package='rplidar_ros',
+            executable='rplidar_node',
+            name='rplidar_node',
+            parameters=[{
+                'channel_type': 'serial',
+                'serial_port': '/dev/ttyUSB0',
+                'serial_baudrate': 115200,
+                'frame_id': 'laser',
+                'inverted': False,
+                'angle_compensate': True,
+            }],
+            output='screen',
+        )],
     )
 
     # Lidar extrinsics: 0.1016 m (4 in) above base_link, yaw pi.
