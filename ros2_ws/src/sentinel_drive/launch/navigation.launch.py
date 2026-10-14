@@ -16,8 +16,9 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch_ros.actions import Node
 
 SHARE = get_package_share_directory('sentinel_drive')
 
@@ -32,6 +33,26 @@ def generate_launch_description():
             'params_file': os.path.join(SHARE, 'config', 'nav2_params.yaml'),
             'use_sim_time': 'False',
             'autostart': 'True',
+            # nav2_bringup's lowercase-'false' defaults crash its own
+            # PythonExpression conditions (NameError) unless overridden.
+            'use_namespace': 'False',
+            'use_composition': 'False',
+            'use_respawn': 'False',
+            'slam': 'False',
         }.items(),
     )
-    return LaunchDescription([nav2])
+
+    # One-shot low-confidence initial pose (0, 0, 0) once AMCL is up.
+    initial_pose = TimerAction(
+        period=8.0,
+        actions=[
+            Node(
+                package='sentinel_drive',
+                executable='publish_initial_pose',
+                name='initial_pose_pub',
+                output='screen',
+            ),
+        ],
+    )
+
+    return LaunchDescription([nav2, initial_pose])

@@ -36,6 +36,7 @@ setup(
             'speed_step_test = sentinel_drive.speed_step_test:main',
             'wheel_slip_detector = sentinel_drive.wheel_slip_detector:main',
             'wheel_odometry = sentinel_drive.wheel_odometry:main',
+            'publish_initial_pose = sentinel_drive.publish_initial_pose:main',
         ],
     },
 )

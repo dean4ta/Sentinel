@@ -76,9 +76,14 @@ bt_navigator:
     odom_topic: /wheel_imu_odom_filtered
     bt_loop_duration: 10
     default_server_timeout: 20
+    # Stock nav2 1.1.20 (Humble) BT plugin set, verbatim from
+    # /opt/ros/humble/share/nav2_bringup/params/nav2_params.yaml — newer-nav2
+    # plugin names (clear_costmap_except_region_service, …) have no .so in
+    # Humble and crash bt_navigator at configure.
     plugin_lib_names:
       - nav2_compute_path_to_pose_action_bt_node
       - nav2_compute_path_through_poses_action_bt_node
+      - nav2_smooth_path_action_bt_node
       - nav2_follow_path_action_bt_node
       - nav2_spin_action_bt_node
       - nav2_wait_action_bt_node
@@ -123,11 +128,6 @@ bt_navigator:
       - nav2_assisted_teleop_cancel_bt_node
       - nav2_drive_on_heading_cancel_bt_node
       - nav2_is_battery_charging_condition_bt_node
-      - nav2_clear_costmap_except_region_service_bt_node
-      - nav2_clear_costmap_around_robot_service_bt_node
-      - nav2_clear_costmap_except_region_client_bt_node
-      - nav2_clear_costmap_around_robot_client_bt_node
-      - nav2_clear_entire_costmap_client_bt_node
     default_nav_to_pose_bt_xml: /opt/ros/humble/share/nav2_bt_navigator/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml
     default_nav_through_poses_bt_xml: /opt/ros/humble/share/nav2_bt_navigator/behavior_trees/navigate_through_poses_w_replanning_and_recovery.xml
 
@@ -155,51 +155,52 @@ controller_server:
       yaw_goal_tolerance: 0.25
 
     # Rotation shim handles rotate-to-heading; DWB drives (omni: vy on).
+    # primary_controller is a pluginlib class lookup, and DWB reads its
+    # params under the shim's own name ("FollowPath"), so DWB params are
+    # inline here, not nested.
     FollowPath:
       plugin: "nav2_rotation_shim_controller::RotationShimController"
-      primary_controller: "dwb"
+      primary_controller: "dwb_core::DWBLocalPlanner"
       angular_dist_threshold: 0.785
       forward_sampling_distance: 0.5
       rotate_to_heading_angular_vel: 1.8
       max_angular_accel: 3.2
       simulate_ahead_time: 1.0
 
-      dwb:
-        plugin: "dwb_core::DWBLocalPlanner"
-        debug_trajectory_details: false
-        min_vel_x: 0.0
-        min_vel_y: -0.3
-        max_vel_x: 0.5
-        max_vel_y: 0.3
-        max_vel_theta: 1.0
-        min_speed_xy: 0.0
-        max_speed_xy: 0.5
-        min_speed_theta: 0.0
-        acc_lim_x: 1.0
-        acc_lim_y: 1.0
-        acc_lim_theta: 3.0
-        decel_lim_x: -1.0
-        decel_lim_y: -1.0
-        decel_lim_theta: -3.0
-        vx_samples: 20
-        vy_samples: 5
-        vtheta_samples: 20
-        sim_time: 1.7
-        linear_granularity: 0.05
-        angular_granularity: 0.025
-        transform_tolerance: 0.2
-        xy_goal_tolerance: 0.25
-        trans_stopped_velocity: 0.25
-        short_circuit_trajectory_evaluation: true
-        stateful: true
-        critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-        BaseObstacle.scale: 0.02
-        PathAlign.scale: 32.0
-        PathAlign.forward_point_distance: 0.1
-        GoalAlign.scale: 24.0
-        GoalAlign.forward_point_distance: 0.1
-        PathDist.scale: 32.0
-        GoalDist.scale: 24.0
+      debug_trajectory_details: false
+      min_vel_x: 0.0
+      min_vel_y: -0.3
+      max_vel_x: 0.5
+      max_vel_y: 0.3
+      max_vel_theta: 1.0
+      min_speed_xy: 0.0
+      max_speed_xy: 0.5
+      min_speed_theta: 0.0
+      acc_lim_x: 1.0
+      acc_lim_y: 1.0
+      acc_lim_theta: 3.0
+      decel_lim_x: -1.0
+      decel_lim_y: -1.0
+      decel_lim_theta: -3.0
+      vx_samples: 20
+      vy_samples: 5
+      vtheta_samples: 20
+      sim_time: 1.7
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 0.2
+      xy_goal_tolerance: 0.25
+      trans_stopped_velocity: 0.25
+      short_circuit_trajectory_evaluation: true
+      stateful: true
+      critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      BaseObstacle.scale: 0.02
+      PathAlign.scale: 32.0
+      PathAlign.forward_point_distance: 0.1
+      GoalAlign.scale: 24.0
+      GoalAlign.forward_point_distance: 0.1
+      PathDist.scale: 32.0
+      GoalDist.scale: 24.0
 
 planner_server:
   ros__parameters:
