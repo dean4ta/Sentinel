@@ -55,11 +55,13 @@ def generate_launch_description():
         )],
     )
 
-    # Lidar extrinsics: 0.1016 m (4 in) above base_link, yaw pi.
+    # Lidar extrinsics: 0.1524 m (6 in) forward of base_link along +X,
+    # 0.1016 m (4 in) above it, sensor X facing -X of robot travel
+    # (yaw pi).
     laser_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
-        arguments=['--x', '0', '--y', '0', '--z', '0.1016',
+        arguments=['--x', '0.1524', '--y', '0', '--z', '0.1016',
                    '--roll', '0', '--pitch', '0', '--yaw', '3.14159265',
                    '--frame-id', 'base_link',
                    '--child-frame-id', 'laser'],
