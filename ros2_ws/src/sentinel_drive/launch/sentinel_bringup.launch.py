@@ -22,6 +22,9 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_xml.launch_description_sources import XMLLaunchDescriptionSource
 
 SHARE = get_package_share_directory('sentinel_drive')
+# Drive stack nodes are C++ now: gamepad launch lives in sentinel_drive_cpp
+# (gamepad_twist itself stays in this package).
+CPP_SHARE = get_package_share_directory('sentinel_drive_cpp')
 
 
 def generate_launch_description():
@@ -31,7 +34,7 @@ def generate_launch_description():
     # Pico gateway, wheel odometry inputs, PS4 control.
     drive = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(SHARE, 'launch', 'gamepad.launch.py')))
+            os.path.join(CPP_SHARE, 'launch', 'gamepad.launch.py')))
 
     # Lidar, laser TF, gyro+wheel EKF, slam_toolbox (brings its own
     # fusion.launch.py include).

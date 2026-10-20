@@ -21,7 +21,7 @@ ssh sentinel1@ts_sentinel "
   colcon build && \
   source install/setup.bash && \
   cd .. && \
-  ros2 launch sentinel_drive step_test.launch.py wheel:=ALL \
+  ros2 launch sentinel_drive_cpp step_test.launch.py wheel:=ALL \
       steps:='$STEPS' sine:=none && \
   cd utils && \
   source .venv/bin/activate && \
