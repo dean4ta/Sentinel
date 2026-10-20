@@ -22,7 +22,7 @@ ssh sentinel1@ts_sentinel "
   source install/setup.bash && \
   cd .. && \
   ros2 launch sentinel_drive step_test.launch.py wheel:=ALL \
-      steps:='$STEPS' sine:='' && \
+      steps:='$STEPS' sine:=none && \
   cd utils && \
   source .venv/bin/activate && \
   python analyze_step_test.py ../data/step_test_latest --wheel ALL \

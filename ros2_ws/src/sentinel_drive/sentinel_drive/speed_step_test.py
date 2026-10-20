@@ -133,7 +133,8 @@ def main(args=None):
             print('usage: ros2 run sentinel_drive speed_step_test '
                   'WHEEL|ALL "speed,dur;speed,dur;..." ["amp,period,dur"]')
             raise SystemExit(1)
-        sine = parse_sine(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
+        sine = (parse_sine(sys.argv[3]) if len(sys.argv) > 3
+                and sys.argv[3] and sys.argv[3] != 'none' else None)
         node = SpeedStepTest(sys.argv[1], parse_steps(sys.argv[2]), sine)
         rclpy.spin(node)
     except (SystemExit, KeyboardInterrupt):
