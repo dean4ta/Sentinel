@@ -19,7 +19,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
-from launch_xml.launch_description_sources import XMLLaunchDescriptionSource
+from launch_ros.actions import Node
 
 SHARE = get_package_share_directory('sentinel_bringup')
 # Drive stack nodes are C++ now: gamepad launch lives in sentinel_drive_cpp
@@ -81,12 +81,27 @@ def generate_launch_description():
         condition=IfCondition(nav),
     )
 
-    # Foxglove bridge on :9090.
-    rosbridge = IncludeLaunchDescription(
-        XMLLaunchDescriptionSource(
-            os.path.join(get_package_share_directory('rosbridge_server'),
-                         'launch', 'rosbridge_websocket_launch.xml')),
-        launch_arguments={'port': '9090'}.items(),
+    # Foxglove bridge on :9090. Own node defs instead of the stock
+    # include: output='log' sends the "write queue full" chatter to
+    # ~/.ros/log instead of the console, and write_queue_size is raised
+    # above the 1000 default so a slow client (Foxglove over wifi) drops
+    # fewer messages on bursts.
+    rosbridge = Node(
+        package='rosbridge_server',
+        executable='rosbridge_websocket',
+        name='rosbridge_websocket',
+        output='log',
+        parameters=[{
+            'port': 9090,
+            'write_queue_size': 10000,
+            'max_message_size': 10000000,
+        }],
+    )
+    rosapi = Node(
+        package='rosapi',
+        executable='rosapi_node',
+        name='rosapi',
+        output='log',
     )
 
     return LaunchDescription([
@@ -99,4 +114,5 @@ def generate_launch_description():
         localization,
         navigation,
         rosbridge,
+        rosapi,
     ])
