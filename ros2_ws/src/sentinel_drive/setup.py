@@ -19,7 +19,7 @@ setup(
         ('share/' + package_name + '/config',
             ['config/drive_params.yaml', 'config/ekf.yaml',
              'config/slam_params_online_async.yaml',
-             'config/acml_nav2_params.yaml']),
+             'config/amcl_nav2_params.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

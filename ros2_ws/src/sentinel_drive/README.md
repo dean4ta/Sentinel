@@ -63,7 +63,7 @@ ros2 launch sentinel_drive sentinel_bringup.launch.py
 ros2 launch sentinel_drive localization.launch.py
 ```
 
-The default bringup launches the same lidar + EKF feeds as mapping (`mapping.launch.py slam:=false`) so AMCL gets `/scan` and the `odom -> base_link` TF. It serves the map (`map_file`, default `/home/sentinel1/maps/robotics_lab.yaml`) via nav2 map_server and localizes with amcl (`acml_nav2_params.yaml`: likelihood-field model, omni motion model for mecanum odom, fused wheel+gyro odom TF, 12 m laser range). amcl publishes `map -> odom` and `/amcl_pose`. Give it the start pose once: Foxglove 3D panel → right-click → Publish pose estimate (or RViz 2D Pose Estimate). Until then there is no `map -> odom` TF and no robot pose appears.
+The default bringup launches the same lidar + EKF feeds as mapping (`mapping.launch.py slam:=false`) so AMCL gets `/scan` and the `odom -> base_link` TF. It serves the map (`map_file`, default `/home/sentinel1/maps/robotics_lab.yaml`) via nav2 map_server and localizes with amcl (`amcl_nav2_params.yaml`: likelihood-field model, omni motion model for mecanum odom, fused wheel+gyro odom TF, 12 m laser range). amcl publishes `map -> odom` and `/amcl_pose`. Give it the start pose once: Foxglove 3D panel → right-click → Publish pose estimate (or RViz 2D Pose Estimate). Until then there is no `map -> odom` TF and no robot pose appears.
 
 Foxglove checklist: 3D panel fixed frame `map`, add topic layers `/map`, `/scan`, `/particlecloud` (AMCL particles), and toggle the `odom`/`base_link`/`laser` frames on under Frames. Then publish the pose estimate.
 
@@ -74,7 +74,7 @@ source ~/dean/rs2_ws/install/setup.bash
 ros2 launch sentinel_drive sentinel_bringup.launch.py nav:=true
 ```
 
-Same lidar + EKF feeds as localization, plus the full Nav2 stack (`navigation.launch.py` includes nav2_bringup with `acml_nav2_params.yaml`): map_server + amcl (omni motion model, fused odom), NavFn planner, DWB controller wrapped in a rotation shim with `vy` enabled for mecanum strafe, costmaps using the 0.508 x 0.406 m footprint, and the standard navigate-to-pose behavior tree. Max speeds 0.5 m/s / 1.0 rad/s (nav only — teleop ceilings untouched).
+Same lidar + EKF feeds as localization, plus the full Nav2 stack (`navigation.launch.py` includes nav2_bringup with `amcl_nav2_params.yaml`): map_server + amcl (omni motion model, fused odom), NavFn planner, DWB controller wrapped in a rotation shim with `vy` enabled for mecanum strafe, costmaps using the 0.508 x 0.406 m footprint, and the standard navigate-to-pose behavior tree. Max speeds 0.5 m/s / 1.0 rad/s (nav only — teleop ceilings untouched).
 
 Use: publish the initial pose first (same as localization), then send a goal — Foxglove 3D panel right-click → Publish pose estimate → topic `/goal_pose` (or RViz 2D Nav Goal). Watch `/plan`, `/local_plan`, `/cmd_vel`, and the `global_costmap`/`local_costmap` layers in Foxglove.
 

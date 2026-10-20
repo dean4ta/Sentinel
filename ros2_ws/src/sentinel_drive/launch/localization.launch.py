@@ -37,9 +37,9 @@ def generate_launch_description():
         package='nav2_amcl',
         executable='amcl',
         name='amcl',
-        # Single source of AMCL config: acml_nav2_params.yaml (nav mode uses
+        # Single source of AMCL config: amcl_nav2_params.yaml (nav mode uses
         # the same file).
-        parameters=[os.path.join(SHARE, 'config', 'acml_nav2_params.yaml')],
+        parameters=[os.path.join(SHARE, 'config', 'amcl_nav2_params.yaml')],
         output='screen',
     )
 
