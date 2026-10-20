@@ -2,15 +2,18 @@
 #
 # Axes (PS4 / joy_node layout): 1 = drive (left Y), 0 = strafe (left X),
 # 2 = rotate (right X). Speeds scale by the V_MAX_* ceilings shared with
-# cmd_vel_serial; channel/sign compensation for the wiring lives there.
+# cmd_vel_serial.cpp (sentinel_drive_cpp); channel/sign compensation for
+# the wiring lives there.
 
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Joy
 
-from sentinel_drive.cmd_vel_serial import (
-    V_MAX_ANGULAR_RADPS, V_MAX_LINEAR_MPS)
+# Must match cmd_vel_serial.cpp in sentinel_drive_cpp: /cmd_vel ceilings
+# normalize to the [-1,1] wire protocol there.
+V_MAX_LINEAR_MPS = 2.29
+V_MAX_ANGULAR_RADPS = 5.0
 
 
 class GamepadTwist(Node):

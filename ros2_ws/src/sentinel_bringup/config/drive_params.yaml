@@ -22,7 +22,8 @@ cmd_vel_serial:
     ik_wheelbase_m: 0.35
     ik_roller_swap: false
 
-    publish_rate: 50.0
+    publish_rate: 100.0    # must be >= Pico encoder report rate (10 ms) or
+                           # faster reports are wasted
     pid_enabled: true       # PID block enable, independent of feed-forward
     # Velocity feed-forward, independent of the PID block:
     #   FF off, PID off -> open loop      FF on,  PID off -> ff only
@@ -43,7 +44,7 @@ cmd_vel_serial:
     fl_kp: 0.0005
     fl_ki: 0.001
     fl_kd: 0.0
-    fl_kS: 0.05
+    fl_kS: 0.10
     fl_kV: 0.88
     fl_ema_alpha: 0.8
 
@@ -52,7 +53,7 @@ cmd_vel_serial:
     fr_kp: 0.0005
     fr_ki: 0.0005
     fr_kd: 0.0
-    fr_kS: 0.11
+    fr_kS: 0.15
     fr_kV: 0.95
     fr_ema_alpha: 0.85
 
@@ -61,7 +62,7 @@ cmd_vel_serial:
     bl_kp: 0.0005
     bl_ki: 0.0005
     bl_kd: 0.0
-    bl_kS: 0.11
+    bl_kS: 0.16
     bl_kV: 0.97
     bl_ema_alpha: 0.85
 
@@ -70,7 +71,7 @@ cmd_vel_serial:
     br_kp: 0.001
     br_ki: 0.0005
     br_kd: 0.0
-    br_kS: 0.09
+    br_kS: 0.14
     br_kV: 0.96
     br_ema_alpha: 0.8
 

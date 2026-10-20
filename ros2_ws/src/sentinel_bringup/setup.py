@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'sentinel_drive'
+package_name = 'sentinel_bringup'
 
 setup(
     name=package_name,
@@ -11,8 +11,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch',
-            ['launch/gamepad.launch.py', 'launch/step_test.launch.py',
-             'launch/fusion.launch.py', 'launch/mapping.launch.py',
+            ['launch/fusion.launch.py', 'launch/mapping.launch.py',
              'launch/sentinel_bringup.launch.py',
              'launch/localization.launch.py',
              'launch/navigation.launch.py']),
@@ -29,13 +28,10 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'gamepad_twist = sentinel_drive.gamepad_twist:main',
-            'cmd_vel_serial = sentinel_drive.cmd_vel_serial:main',
-            'wheel_debug = sentinel_drive.wheel_debug:main',
-            'speed_step_test = sentinel_drive.speed_step_test:main',
-            'wheel_slip_detector = sentinel_drive.wheel_slip_detector:main',
-            'wheel_odometry = sentinel_drive.wheel_odometry:main',
-            'publish_initial_pose = sentinel_drive.publish_initial_pose:main',
+            'gamepad_twist = sentinel_bringup.gamepad_twist:main',
+            'wheel_debug = sentinel_bringup.wheel_debug:main',
+            'speed_step_test = sentinel_bringup.speed_step_test:main',
+            'publish_initial_pose = sentinel_bringup.publish_initial_pose:main',
         ],
     },
 )

@@ -6,8 +6,8 @@
 # wheels together through the mecanum IK. Robot on blocks either way.
 #
 # Usage:
-#   ros2 run sentinel_drive speed_step_test FL "0.2,5;0.5,10;1.0,5;0,1;-1.0,10" "2.0,10,10"
-#   ros2 run sentinel_drive speed_step_test ALL "0.2,5;0.5,10" ""
+#   ros2 run sentinel_bringup speed_step_test FL "0.2,5;0.5,10;1.0,5;0,1;-1.0,10" "2.0,10,10"
+#   ros2 run sentinel_bringup speed_step_test ALL "0.2,5;0.5,10" ""
 #
 # Publishes continuously (20 Hz) so /wheel_cmd freshness never expires.
 # Record alongside: ros2 bag record /wheel_speeds /encoder -o data/step_test_<date>
@@ -130,10 +130,11 @@ def main(args=None):
     rclpy.init(args=args)
     try:
         if len(sys.argv) < 3:
-            print('usage: ros2 run sentinel_drive speed_step_test '
+            print('usage: ros2 run sentinel_bringup speed_step_test '
                   'WHEEL|ALL "speed,dur;speed,dur;..." ["amp,period,dur"]')
             raise SystemExit(1)
-        sine = parse_sine(sys.argv[3]) if len(sys.argv) > 3 else None
+        sine = (parse_sine(sys.argv[3]) if len(sys.argv) > 3
+                and sys.argv[3] and sys.argv[3] != 'none' else None)
         node = SpeedStepTest(sys.argv[1], parse_steps(sys.argv[2]), sine)
         rclpy.spin(node)
     except (SystemExit, KeyboardInterrupt):

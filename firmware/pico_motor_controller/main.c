@@ -407,10 +407,15 @@ static void print_encoder_counts(void)
     int32_t bl = enc_bl.count;
     int32_t br = enc_br.count;
 
-    printf("FL %ld\n", (long)fl);
-    printf("FR %ld\n", (long)fr);
-    printf("BL %ld\n", (long)bl);
-    printf("BR %ld\n", (long)br);
+    // Report a Pico-clock timestamp with each sample: the host computes
+    // rpm from Pico-time deltas, so host timer jitter and burst arrival
+    // (2 reports one tick, none the next) can't alias into rpm spikes.
+    uint64_t now_us = time_us_64();
+
+    printf("FL %ld %llu\n", (long)fl, (unsigned long long)now_us);
+    printf("FR %ld %llu\n", (long)fr, (unsigned long long)now_us);
+    printf("BL %ld %llu\n", (long)bl, (unsigned long long)now_us);
+    printf("BR %ld %llu\n", (long)br, (unsigned long long)now_us);
 }
 
 // ============================================================
@@ -472,7 +477,10 @@ int main(void)
         // Encoder reporting
         // ----------------------------------------------------
 
-        if ((now_us - last_encoder_report_us) >= 20000ULL) {
+        // 100 Hz (10 ms): faster measurement for the Jetson-side speed
+        // PID. Jetson cmd_vel_serial must drain at >= this rate or the
+        // extra reports are wasted (last-report-wins per tick).
+        if ((now_us - last_encoder_report_us) >= 10000ULL) {
 
             last_encoder_report_us = now_us;
 

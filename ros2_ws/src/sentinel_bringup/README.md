@@ -1,12 +1,12 @@
-# sentinel_drive
+# sentinel_bringup
 
 Gamepad drive stack: `/joy` → `/cmd_vel` → Pico serial, plus slip detection and wheel odometry. See workspace [README](../../README.md) for build steps.
 
 ## Run
 
 ```bash
-ros2 launch sentinel_drive gamepad.launch.py            # drive, no recording
-ros2 launch sentinel_drive gamepad.launch.py record:=true   # + rosbag
+ros2 launch sentinel_drive_cpp gamepad.launch.py            # drive, no recording
+ros2 launch sentinel_drive_cpp gamepad.launch.py record:=true   # + rosbag
 ```
 
 Starts `joy_node` (PS4, 20 Hz autorepeat), `gamepad_twist`, `cmd_vel_serial`, `wheel_slip_detector`, `wheel_odometry`. Params load from `config/drive_params.yaml`. In recording mode, any button press (e.g. X) on the controller ends the run and closes the bag.
@@ -17,7 +17,7 @@ Robot-side tuning helpers live in `utils/` at the repo root: `ground_drive_tunin
 
 ```bash
 source ~/dean/rs2_ws/install/setup.bash      # source-built realsense2_camera (RSUSB)
-ros2 launch sentinel_drive fusion.launch.py  # camera, static TF, EKF
+ros2 launch sentinel_bringup fusion.launch.py  # camera, static TF, EKF
 ```
 
 Starts realsense2_camera (gyro only, raw `/camera/realsense2_camera/gyro/sample`), the `base_link -> camera_link` static TF (camera mounted upside down: roll 180°), and robot_localization's `ekf_node` (config `ekf.yaml`) fusing wheel velocities + gyro yaw rate, publishing `/wheel_imu_odom_filtered` and `odom -> base_link` TF. Run alongside the drive stack. Verify feeds first:
@@ -31,7 +31,7 @@ ros2 topic hz /wheel_odom
 
 ```bash
 source ~/dean/rs2_ws/install/setup.bash      # source-built realsense2_camera (RSUSB)
-ros2 launch sentinel_drive sentinel_bringup.launch.py mapping:=true
+ros2 launch sentinel_bringup sentinel_bringup.launch.py mapping:=true
 ```
 
 One launch brings up the drive stack, rosbridge (:9090 for Foxglove) and `mapping.launch.py`: RPLIDAR A1 driver (`/dev/ttyUSB0`, 115200 baud → `/scan`), `base_link -> laser` static TF (lidar 6 in forward, 4 in above base_link, X facing −X: yaw π), the fusion stack, and slam_toolbox online-async mapping (`slam_params_online_async.yaml`: map in `map` frame, base `base_link`, odom `/wheel_imu_odom_filtered`). Drive slowly; loop closure locks in when the robot revisits an area.
@@ -39,7 +39,7 @@ One launch brings up the drive stack, rosbridge (:9090 for Foxglove) and `mappin
 Drive only (no lidar, no realsense, no localization):
 
 ```bash
-ros2 launch sentinel_drive sentinel_bringup.launch.py localize:=false
+ros2 launch sentinel_bringup sentinel_bringup.launch.py localize:=false
 ```
 
 Save the map (map_saver does not create directories; the built-in
@@ -58,9 +58,9 @@ Writes `/home/sentinel1/maps/room.yaml` + `room.pgm` (via the built-in map saver
 ```bash
 source ~/dean/rs2_ws/install/setup.bash      # realsense driver for the EKF gyro
 # drive stack + lidar + fusion + rosbridge + AMCL localization (default)
-ros2 launch sentinel_drive sentinel_bringup.launch.py
+ros2 launch sentinel_bringup sentinel_bringup.launch.py
 # or AMCL alone, alongside an already-running bringup:
-ros2 launch sentinel_drive localization.launch.py
+ros2 launch sentinel_bringup localization.launch.py
 ```
 
 The default bringup launches the same lidar + EKF feeds as mapping (`mapping.launch.py slam:=false`) so AMCL gets `/scan` and the `odom -> base_link` TF. It serves the map (`map_file`, default `/home/sentinel1/maps/robotics_lab.yaml`) via nav2 map_server and localizes with amcl (`amcl_nav2_params.yaml`: likelihood-field model, omni motion model for mecanum odom, fused wheel+gyro odom TF, 12 m laser range). amcl publishes `map -> odom` and `/amcl_pose`. Give it the start pose once: Foxglove 3D panel → right-click → Publish pose estimate (or RViz 2D Pose Estimate). Until then there is no `map -> odom` TF and no robot pose appears.
@@ -71,7 +71,7 @@ Foxglove checklist: 3D panel fixed frame `map`, add topic layers `/map`, `/scan`
 
 ```bash
 source ~/dean/rs2_ws/install/setup.bash
-ros2 launch sentinel_drive sentinel_bringup.launch.py nav:=true
+ros2 launch sentinel_bringup sentinel_bringup.launch.py nav:=true
 ```
 
 Same lidar + EKF feeds as localization, plus the full Nav2 stack (`navigation.launch.py` includes nav2_bringup with `amcl_nav2_params.yaml`): map_server + amcl (omni motion model, fused odom), NavFn planner, DWB controller wrapped in a rotation shim with `vy` enabled for mecanum strafe, costmaps using the 0.508 x 0.406 m footprint, and the standard navigate-to-pose behavior tree. Max speeds 0.5 m/s / 1.0 rad/s (nav only — teleop ceilings untouched).
@@ -80,19 +80,12 @@ Use: publish the initial pose first (same as localization), then send a goal —
 
 Live view from Mac (no ROS needed): Foxglove Studio → Open connection → Rosbridge → `ws://ts_sentinel:9090` (rosbridge launched with `ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090`). 3D panel: fixed frame `map`, layers `/scan` + `/map`. The scan tracks the robot only while the fusion stack is up (odom → base_link TF).
 
-## Tests
-
-```bash
-python3 test/test_wheel_consistency.py   # slip detector math
-python3 test/test_odometry_math.py       # odometry math
-```
-
 ## Nodes
 
 - `gamepad_twist` — `/joy` → `geometry_msgs/Twist` on `/cmd_vel` (SI: linear.x/y m/s, angular.z rad/s), deadzone + per-axis invert + rotate clamp + speed scale.
 - `cmd_vel_serial` — `/cmd_vel` → mecanum IK → per-wheel PID+ff → `"fl,fr,bl,br\n"` over USB serial to the Pico. Reads encoder lines back, publishes `EncoderCounts` on `/encoder` and `WheelSpeeds` (target/measured/cmd rpm) on `/wheel_speeds`. Sole owner of the serial port. `/wheel_cmd` debug topic ("FL 30" = 30 rpm) overrides `/cmd_vel` while fresh.
-- `wheel_slip_detector` — leave-one-out mecanum consistency on `/wheel_speeds` (FK from 3 wheels → predict 4th → residual). Asymmetric + sign-aware: only overspeeding wheels are suspicious; target-excess gate attributes slip and kills leave-one-out smear; tracking-error advantage scales the score. Publishes `WheelConsistency` (Header + per-wheel confidence 0-1 + residual m/s) on `/wheel_consistency`, filtered with asymmetric rates (fast decay, slow recovery), processed once per `/wheel_speeds` sample. Math: `wheel_consistency.py`.
-- `wheel_odometry` — `/wheel_speeds` + `/wheel_consistency` → confidence-weighted ridge-regularised LS twist → integrated pose → `nav_msgs/Odometry` on `/wheel_odom`. Unobservable directions fall back to the previous estimate when wheels are distrusted. No TF (future fusion node owns odom→base). Math: `odometry_math.py`.
+- `wheel_slip_detector` — leave-one-out mecanum consistency on `/wheel_speeds` (FK from 3 wheels → predict 4th → residual). Asymmetric + sign-aware: only overspeeding wheels are suspicious; target-excess gate attributes slip and kills leave-one-out smear; tracking-error advantage scales the score. Publishes `WheelConsistency` (Header + per-wheel confidence 0-1 + residual m/s) on `/wheel_consistency`, filtered with asymmetric rates (fast decay, slow recovery), processed once per `/wheel_speeds` sample.
+- `wheel_odometry` — `/wheel_speeds` + `/wheel_consistency` → confidence-weighted ridge-regularised LS twist → integrated pose → `nav_msgs/Odometry` on `/wheel_odom`. Unobservable directions fall back to the previous estimate when wheels are distrusted. No TF (future fusion node owns odom→base).
 
 ## Params
 
@@ -153,6 +146,6 @@ All in `config/drive_params.yaml`. Edit + relaunch.
 
 ## Known gaps
 
-- `V_MAX_LINEAR_MPS` / `V_MAX_ANGULAR_RADPS` / `WHEEL_MAX_RPM` in `cmd_vel_serial.py` are estimates (TODO: measure).
+- `V_MAX_LINEAR_MPS` / `V_MAX_ANGULAR_RADPS` / `WHEEL_MAX_RPM` in `cmd_vel_serial.cpp` are estimates (TODO: measure).
 - `lxy_m` (0.362) vs `ik_wheelbase_m` (0.35) disagree ~3% on yaw; measure and unify.
 - Mecanum roller slip makes strafe/rotate odometry drift even when healthy — validate against ground truth.

@@ -5,8 +5,8 @@
 #
 # Run alongside the drive stack (gamepad.launch.py or step_test), e.g.:
 #   source ~/dean/rs2_ws/install/setup.bash   # source-built realsense2_camera
-#   ros2 launch sentinel_drive fusion.launch.py &
-#   ros2 launch sentinel_drive gamepad.launch.py
+#   ros2 launch sentinel_bringup fusion.launch.py &
+#   ros2 launch sentinel_drive_cpp gamepad.launch.py
 #
 # The driver publishes camera_link -> camera_*_frame TFs; the EKF owns
 # odom -> base_link. No other node may publish base_link.
@@ -17,7 +17,7 @@ from launch.actions import SetEnvironmentVariable
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
-SHARE = get_package_share_directory('sentinel_drive')
+SHARE = get_package_share_directory('sentinel_bringup')
 
 # RSUSB-built librealsense (source build in ~/dean/rs2_local) must load
 # ahead of the ROS deb's lib (both are librealsense2.so.2, ROS puts its

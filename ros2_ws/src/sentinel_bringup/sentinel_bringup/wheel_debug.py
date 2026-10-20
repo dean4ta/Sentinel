@@ -1,7 +1,7 @@
 # Debug node: spin one wheel at a target RPM.
 #
 # Usage:
-#   ros2 run sentinel_drive wheel_debug FL 30
+#   ros2 run sentinel_bringup wheel_debug FL 30
 #
 # Publishes "FL 30" on /wheel_cmd at 20 Hz; cmd_vel_serial converts
 # rpm -> normalized PWM (rpm / WHEEL_MAX_RPM) while the message is
@@ -40,7 +40,7 @@ def main(args=None):
     rclpy.init(args=args)
     try:
         if len(sys.argv) < 3:
-            print('usage: ros2 run sentinel_drive wheel_debug WHEEL RPM')
+            print('usage: ros2 run sentinel_bringup wheel_debug WHEEL RPM')
             raise SystemExit(1)
         node = WheelDebug(sys.argv[1], sys.argv[2])
         rclpy.spin(node)

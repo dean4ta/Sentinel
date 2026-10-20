@@ -161,7 +161,7 @@ def extract(bag_dir, wheel):
 def load_params():
     """Best-effort parse of drive_params.yaml for the plot subtitle."""
     path = Path(__file__).resolve().parent.parent / \
-        'ros2_ws/src/sentinel_drive/config/drive_params.yaml'
+        'ros2_ws/src/sentinel_bringup/config/drive_params.yaml'
     params = {}
     if not path.exists():
         return params
