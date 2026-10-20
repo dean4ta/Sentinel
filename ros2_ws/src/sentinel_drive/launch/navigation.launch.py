@@ -1,7 +1,7 @@
 # Nav2 navigation on the saved robotics_lab map. Launches the stock
 # nav2_bringup stack (map_server, amcl, planner, controller, smoother,
 # bt_navigator, behavior/waypoint/velocity nodes + lifecycle managers)
-# with our params (nav2_params.yaml: mecanum DWB+rotation shim, /scan,
+# with our params (acml_nav2_params.yaml: mecanum DWB+rotation shim, /scan,
 # fused odom, omni motion model). Run alongside the drive stack:
 #
 #   source ~/dean/rs2_ws/install/setup.bash
@@ -30,7 +30,7 @@ def generate_launch_description():
                          'launch', 'bringup_launch.py')),
         launch_arguments={
             'map': '/home/sentinel1/maps/robotics_lab.yaml',
-            'params_file': os.path.join(SHARE, 'config', 'nav2_params.yaml'),
+            'params_file': os.path.join(SHARE, 'config', 'acml_nav2_params.yaml'),
             'use_sim_time': 'False',
             'autostart': 'True',
             # nav2_bringup's lowercase-'false' defaults crash its own

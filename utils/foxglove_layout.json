@@ -1,0 +1,249 @@
+{
+  "layout": {
+    "direction": "row",
+    "first": "3D!2if7551",
+    "second": {
+      "direction": "column",
+      "first": {
+        "direction": "column",
+        "first": "Plot!navvel",
+        "second": "Plot!poseerr",
+        "splitPercentage": 50
+      },
+      "second": {
+        "direction": "column",
+        "first": "DiagnosticSummary!diag",
+        "second": "RosOut!log",
+        "splitPercentage": 40
+      },
+      "splitPercentage": 50
+    },
+    "splitPercentage": 65
+  },
+  "configById": {
+    "3D!2if7551": {
+      "foxglovePanelTitle": "Nav2 scene",
+      "followTf": "base_link",
+      "fixedFrame": "map",
+      "followMode": "follow-position",
+      "scene": {
+        "labelScaleFactor": 0.24
+      },
+      "cameraState": {
+        "perspective": false,
+        "distance": 7.510322692270039,
+        "phi": 0.00005729577951308232,
+        "thetaOffset": 92.04421003928945,
+        "targetOffset": [
+          -1.420208532998984,
+          -0.6881112188565123,
+          2.2207694335056017e-23
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "topics": {
+        "/map": {
+          "visible": true,
+          "colorMode": "map",
+          "drawBehind": true,
+          "frameLocked": false
+        },
+        "/local_costmap/costmap": {
+          "visible": true,
+          "colorMode": "costmap"
+        },
+        "/global_costmap/costmap": {
+          "visible": false
+        },
+        "/plan": {
+          "visible": true,
+          "lineWidth": 0.05,
+          "gradient": [
+            "#00ff00",
+            "#00ff00"
+          ]
+        },
+        "/local_plan": {
+          "visible": true,
+          "lineWidth": 0.05,
+          "gradient": [
+            "#ff00ff",
+            "#ff00ff"
+          ]
+        },
+        "/plan_smoothed": {
+          "visible": false
+        },
+        "/received_global_plan": {
+          "visible": false
+        },
+        "/transformed_global_plan": {
+          "visible": false
+        },
+        "/scan": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "colormap",
+          "colorMap": "turbo",
+          "pointSize": 4.5
+        },
+        "/particle_cloud": {
+          "visible": true
+        },
+        "/amcl_pose": {
+          "visible": true
+        },
+        "/goal_pose": {
+          "visible": true
+        },
+        "/local_costmap/published_footprint": {
+          "visible": true
+        },
+        "/global_costmap/published_footprint": {
+          "visible": false
+        },
+        "/marker": {
+          "visible": true
+        },
+        "/tf": {
+          "visible": true
+        }
+      },
+      "layers": {
+        "grid": {
+          "visible": true,
+          "instanceId": "f35c55a2-dc25-40e2-9c88-e0e33aacc40f",
+          "layerId": "foxglove.Grid",
+          "label": "Grid",
+          "frameId": "map",
+          "size": 10,
+          "divisions": 10,
+          "lineWidth": 1,
+          "color": "#248eff",
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "publish": {
+        "type": "pose",
+        "poseTopic": "/goal_pose",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "synchronize": false,
+      "transforms": {},
+      "imageMode": {}
+    },
+    "Plot!navvel": {
+      "foxglovePanelTitle": "Velocity chain (nav → smoothed → actual)",
+      "paths": [
+        {
+          "value": "/cmd_vel_nav.linear.x",
+          "enabled": true,
+          "label": "cmd_vel_nav v"
+        },
+        {
+          "value": "/cmd_vel.linear.x",
+          "enabled": true,
+          "label": "cmd_vel v"
+        },
+        {
+          "value": "/odom.twist.twist.linear.x",
+          "enabled": true,
+          "label": "odom v"
+        },
+        {
+          "value": "/cmd_vel_nav.angular.z",
+          "enabled": true,
+          "label": "cmd_vel_nav w"
+        },
+        {
+          "value": "/cmd_vel.angular.z",
+          "enabled": true,
+          "label": "cmd_vel w"
+        },
+        {
+          "value": "/odom.twist.twist.angular.z",
+          "enabled": true,
+          "label": "odom w"
+        }
+      ],
+      "showLegend": true,
+      "xAxisVal": "timestamp"
+    },
+    "Plot!poseerr": {
+      "foxglovePanelTitle": "Localization: AMCL covariance & odom drift",
+      "paths": [
+        {
+          "value": "/amcl_pose.pose.covariance[0]",
+          "enabled": true,
+          "label": "cov xx"
+        },
+        {
+          "value": "/amcl_pose.pose.covariance[7]",
+          "enabled": true,
+          "label": "cov yy"
+        },
+        {
+          "value": "/amcl_pose.pose.covariance[35]",
+          "enabled": true,
+          "label": "cov yaw"
+        }
+      ],
+      "showLegend": true,
+      "xAxisVal": "timestamp"
+    },
+    "DiagnosticSummary!diag": {
+      "foxglovePanelTitle": "Diagnostics",
+      "topicToRender": "/diagnostics",
+      "minLevel": 0,
+      "pinnedIds": [],
+      "hardwareIdFilter": "",
+      "sortByLevel": true,
+      "secondsUntilStale": 5
+    },
+    "RosOut!log": {
+      "foxglovePanelTitle": "Logs",
+      "topicToRender": "/rosout",
+      "minLogLevel": 3,
+      "searchTerms": [],
+      "nameFilter": {},
+      "fontSize": 12,
+      "showLevel": true,
+      "showDate": true,
+      "showTime": true,
+      "showTimezone": true,
+      "showName": true,
+      "showSourceLocation": false
+    }
+  },
+  "playbackConfig": {
+    "speed": 1
+  },
+  "userNodes": {},
+  "globalVariables": {}
+}
