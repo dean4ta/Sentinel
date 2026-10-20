@@ -1,12 +1,15 @@
 # One-command step test: starts cmd_vel_serial + rosbag, then (2 s later,
 # once the bag is listening) the step test node. Ends by itself 1 s after
 # the last step; data/step_test_latest symlinks the newest recording.
+# pid/feed-forward state comes from drive_params.yaml alone.
 #
-# Usage (from repo root, robot on blocks):
+# Usage (from repo root, robot on blocks or floor -- WHEEL spins one wheel,
+# ALL drives the robot):
 #   ros2 launch sentinel_drive step_test.launch.py wheel:=FL \
 #       steps:="0.2,5;0.5,10;1.0,5;0,1;-1.0,10" sine:="2.0,10,10"
-#   ros2 launch sentinel_drive step_test.launch.py wheel:=ALL
-# sine = "amp_mps,period_s,duration_s"; analyze with:
+#   ros2 launch sentinel_drive step_test.launch.py wheel:=ALL \
+#       steps:="0.05,4;0.1,4" sine:=""
+# sine = "amp_mps,period_s,duration_s" (empty string skips it); analyze:
 #   python analyze_step_test.py ../data/step_test_latest --wheel FL ...
 
 from datetime import datetime
