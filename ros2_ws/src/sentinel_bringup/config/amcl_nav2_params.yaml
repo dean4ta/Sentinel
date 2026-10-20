@@ -160,8 +160,8 @@ controller_server:
     general_goal_checker:
       stateful: true
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.25
+      xy_goal_tolerance: 0.40
+      yaw_goal_tolerance: 0.50
 
     # Rotation shim handles rotate-to-heading; DWB drives (omni: vy on).
     # primary_controller is a pluginlib class lookup, and DWB reads its
@@ -198,7 +198,8 @@ controller_server:
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
-      xy_goal_tolerance: 0.25
+      xy_goal_tolerance: 0.40
+      yaw_goal_tolerance: 0.50
       trans_stopped_velocity: 0.25
       short_circuit_trajectory_evaluation: true
       stateful: true
