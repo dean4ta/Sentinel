@@ -26,12 +26,17 @@ def main():
 
     msg = PoseWithCovarianceStamped()
     msg.header.frame_id = FRAME
-    msg.header.stamp = node.get_clock().now().to_msg()
     msg.pose.pose.orientation.w = 1.0
     msg.pose.covariance[0] = POSITION_VAR
     msg.pose.covariance[7] = POSITION_VAR
     msg.pose.covariance[35] = HEADING_VAR
-    pub.publish(msg)
+    # Publish several copies while spinning: a single publish followed by
+    # immediate shutdown races DDS delivery - the writer can be torn down
+    # before the message reaches AMCL, and the pose silently never lands.
+    for _ in range(5):
+        msg.header.stamp = node.get_clock().now().to_msg()
+        pub.publish(msg)
+        rclpy.spin_once(node, timeout_sec=0.2)
     node.get_logger().info('Published initial pose (0, 0, 0), low confidence')
 
     node.destroy_node()
