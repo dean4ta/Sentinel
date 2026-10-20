@@ -12,7 +12,7 @@ ssh sentinel1@ts_sentinel '
   colcon build && \
   source install/setup.bash && \
   cd .. && \
-  ros2 launch sentinel_drive gamepad.launch.py record:=true && \
+  ros2 launch sentinel_drive_cpp gamepad.launch.py record:=true && \
   cd utils/ && \
   source .venv/bin/activate && \
   python analyze_step_test.py ../data/gamepad_latest --wheel ALL -o ../data && \

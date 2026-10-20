@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>C++ ports of the Sentinel 1 drive nodes (cmd_vel_serial,
   wheel_slip_detector, wheel_odometry). Same params (drive_params.yaml),
-  same topics, same behavior as the Python originals in sentinel_drive.</description>
+  same topics, same behavior as the Python originals in sentinel_bringup.</description>
   <maintainer email="dean@example.com">Dean Fortier</maintainer>
   <license>MIT</license>
 
@@ -20,7 +20,7 @@
 
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>sentinel_drive</exec_depend>
+  <exec_depend>sentinel_bringup</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

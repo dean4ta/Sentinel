@@ -17,10 +17,10 @@ ssh sentinel1@ts_sentinel '
   source install/setup.bash && \
   source ~/dean/rs2_ws/install/setup.bash && \
   cd ..
-  ros2 launch sentinel_drive fusion.launch.py >/tmp/fusion_record.log 2>&1 &
+  ros2 launch sentinel_bringup fusion.launch.py >/tmp/fusion_record.log 2>&1 &
   FUSION=$!
   sleep 12
-  ros2 launch sentinel_drive gamepad.launch.py record:=true \
+  ros2 launch sentinel_drive_cpp gamepad.launch.py record:=true \
     bag_out:=data/odom_input \
     record_topics:="/wheel_speeds /encoder /camera/realsense2_camera/gyro/sample /tf_static"
   RC=$?

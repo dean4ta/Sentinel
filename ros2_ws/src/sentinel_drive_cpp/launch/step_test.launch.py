@@ -1,6 +1,6 @@
-# C++ variant of sentinel_drive/launch/step_test.launch.py: one-command
-# step test with the C++ cmd_vel_serial. Same args (wheel, steps, sine),
-# same bag topics, same config (sentinel_drive's drive_params.yaml).
+# One-command step test with the C++ cmd_vel_serial. Same args (wheel,
+# steps, sine), same bag topics, same config (sentinel_bringup's
+# drive_params.yaml).
 #
 # Usage (from repo root, robot on blocks or floor -- WHEEL spins one wheel,
 # ALL drives the robot):
@@ -19,7 +19,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
-SHARE = FindPackageShare('sentinel_drive')
+SHARE = FindPackageShare('sentinel_bringup')
 
 
 def generate_launch_description():
@@ -58,7 +58,7 @@ def generate_launch_description():
     test_node = TimerAction(
         period=2.0,  # let the bag start listening before step 1
         actions=[ExecuteProcess(
-            cmd=['ros2', 'run', 'sentinel_drive', 'speed_step_test',
+            cmd=['ros2', 'run', 'sentinel_bringup', 'speed_step_test',
                  wheel, steps, sine],
             output='screen',
             on_exit=[TimerAction(

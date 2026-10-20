@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'sentinel_drive'
+package_name = 'sentinel_bringup'
 
 setup(
     name=package_name,
@@ -28,10 +28,10 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'gamepad_twist = sentinel_drive.gamepad_twist:main',
-            'wheel_debug = sentinel_drive.wheel_debug:main',
-            'speed_step_test = sentinel_drive.speed_step_test:main',
-            'publish_initial_pose = sentinel_drive.publish_initial_pose:main',
+            'gamepad_twist = sentinel_bringup.gamepad_twist:main',
+            'wheel_debug = sentinel_bringup.wheel_debug:main',
+            'speed_step_test = sentinel_bringup.speed_step_test:main',
+            'publish_initial_pose = sentinel_bringup.publish_initial_pose:main',
         ],
     },
 )

@@ -3,8 +3,8 @@
 # amcl publishes map -> odom and /amcl_pose.
 #
 # Run alongside the drive stack (sentinel_bringup without mapping):
-#   ros2 launch sentinel_drive sentinel_bringup.launch.py
-#   ros2 launch sentinel_drive localization.launch.py
+#   ros2 launch sentinel_bringup sentinel_bringup.launch.py
+#   ros2 launch sentinel_bringup localization.launch.py
 #
 # Then give AMCL its start pose in Foxglove (3D panel, right-click ->
 # Publish pose estimate) or RViz (2D Pose Estimate) - /initialpose.
@@ -16,7 +16,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-SHARE = get_package_share_directory('sentinel_drive')
+SHARE = get_package_share_directory('sentinel_bringup')
 
 
 def generate_launch_description():

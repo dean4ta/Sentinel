@@ -1,7 +1,7 @@
-# C++ variant of sentinel_drive/launch/gamepad.launch.py: gamepad drive
-# stack with the sentinel_drive_cpp nodes (cmd_vel_serial, slip detector,
-# wheel odometry). gamepad_twist stays Python; config stays
-# sentinel_drive's drive_params.yaml (single source of truth).
+# Gamepad drive stack with the sentinel_drive_cpp nodes (cmd_vel_serial,
+# slip detector, wheel odometry). gamepad_twist stays Python in
+# sentinel_bringup; config stays sentinel_bringup's drive_params.yaml
+# (single source of truth).
 #
 #   ros2 launch sentinel_drive_cpp gamepad.launch.py            # drive
 #   ros2 launch sentinel_drive_cpp gamepad.launch.py record:=true
@@ -32,7 +32,7 @@ def arm_x_exit(context, gamepad_node):
 
 def generate_launch_description():
     config = os.path.join(
-        get_package_share_directory('sentinel_drive'),
+        get_package_share_directory('sentinel_bringup'),
         'config',
         'drive_params.yaml',
     )
@@ -52,7 +52,7 @@ def generate_launch_description():
         default='/wheel_speeds /encoder /wheel_consistency /wheel_odom')
 
     gamepad_node = Node(
-        package='sentinel_drive',
+        package='sentinel_bringup',
         executable='gamepad_twist',
         name='gamepad_twist',
         parameters=[config, {'exit_on_x': record}],

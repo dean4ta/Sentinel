@@ -5,10 +5,10 @@
 # fused odom, omni motion model). Run alongside the drive stack:
 #
 #   source ~/dean/rs2_ws/install/setup.bash
-#   ros2 launch sentinel_drive sentinel_bringup.launch.py nav:=true
+#   ros2 launch sentinel_bringup sentinel_bringup.launch.py nav:=true
 #
 # or alongside an already-running bringup (localize:=false):
-#   ros2 launch sentinel_drive navigation.launch.py
+#   ros2 launch sentinel_bringup navigation.launch.py
 #
 # Goals: Foxglove 3D panel right-click -> Publish pose estimate ->
 # topic /goal_pose, or RViz 2D Nav Goal. Initial pose first: /initialpose.
@@ -20,7 +20,7 @@ from launch.actions import IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 
-SHARE = get_package_share_directory('sentinel_drive')
+SHARE = get_package_share_directory('sentinel_bringup')
 
 
 def generate_launch_description():
@@ -47,7 +47,7 @@ def generate_launch_description():
         period=8.0,
         actions=[
             Node(
-                package='sentinel_drive',
+                package='sentinel_bringup',
                 executable='publish_initial_pose',
                 name='initial_pose_pub',
                 output='screen',

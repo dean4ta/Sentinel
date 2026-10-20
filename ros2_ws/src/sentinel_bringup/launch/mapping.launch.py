@@ -5,8 +5,8 @@
 #
 # Run alongside the drive stack (gamepad.launch.py), e.g.:
 #   source ~/dean/rs2_ws/install/setup.bash
-#   ros2 launch sentinel_drive mapping.launch.py
-#   ros2 launch sentinel_drive gamepad.launch.py
+#   ros2 launch sentinel_bringup mapping.launch.py
+#   ros2 launch sentinel_drive_cpp gamepad.launch.py
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -17,7 +17,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-SHARE = get_package_share_directory('sentinel_drive')
+SHARE = get_package_share_directory('sentinel_bringup')
 
 
 def generate_launch_description():
