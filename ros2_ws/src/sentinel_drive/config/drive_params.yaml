@@ -22,7 +22,8 @@ cmd_vel_serial:
     ik_wheelbase_m: 0.35
     ik_roller_swap: false
 
-    publish_rate: 50.0
+    publish_rate: 100.0    # must be >= Pico encoder report rate (10 ms) or
+                           # faster reports are wasted
     pid_enabled: true       # PID block enable, independent of feed-forward
     # Velocity feed-forward, independent of the PID block:
     #   FF off, PID off -> open loop      FF on,  PID off -> ff only

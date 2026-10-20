@@ -8,7 +8,8 @@
 # own failsafe, so a continuous stream keeps drive alive. /wheel_cmd
 # ("FL 30" = 30 rpm) overrides /cmd_vel while fresh (< 0.5 s silence).
 #
-# Reads "FL <n>" encoder lines -> EncoderCounts on /encoder. Sole owner
+# Reads "FL <count> <us>" encoder lines -> EncoderCounts on /encoder;
+# rpm comes from Pico-clock deltas, not host tick timing. Sole owner
 # of the serial port (both directions).
 #
 # Direct drive, mecanum mixer bypassed (2026-09-24): FR -> GP18,
@@ -97,6 +98,8 @@ class CmdVelSerial(Node):
         self.latest = Twist()
         self.rx_buf = b''
         self.counts = {name: 0 for name in ENCODER_NAMES}
+        self.enc_us = {name: 0 for name in ENCODER_NAMES}
+        self.enc_updated = set()  # wheels with a new report this drain
         self.enc_seen = set()     # wheels that have reported at least once
         self.enc_primed = set()   # wheels whose baseline is initialized
         self.encoder_pub = self.create_publisher(EncoderCounts, '/encoder', 10)
@@ -151,6 +154,7 @@ class CmdVelSerial(Node):
         self.measured_rpm = {name: 0.0 for name in ENCODER_NAMES}
         self.raw_rpm = {name: 0.0 for name in ENCODER_NAMES}
         self.last_counts = {name: 0 for name in ENCODER_NAMES}
+        self.last_enc_us = {name: 0 for name in ENCODER_NAMES}
         now = self.get_clock().now()
         self.last_enc_time = now
         self.last_pid_time = now
@@ -205,16 +209,20 @@ class CmdVelSerial(Node):
         updated = False
         for line in lines[:-1]:
             parts = line.decode().split()
-            if len(parts) != 2 or parts[0] not in self.counts:
+            if len(parts) != 3 or parts[0] not in self.counts:
                 continue
             try:
                 value = int(parts[1])
+                us = int(parts[2])
             except ValueError:
                 continue
             self.counts[parts[0]] = value
+            self.enc_us[parts[0]] = us
+            self.enc_updated.add(parts[0])
             self.enc_seen.add(parts[0])
             updated = True
         if updated:
+            self.last_enc_time = self.get_clock().now()
             self.publish_counts()
 
     def publish_counts(self):
@@ -226,29 +234,36 @@ class CmdVelSerial(Node):
         self.encoder_pub.publish(msg)
 
     def update_rpm(self):
-        now = self.get_clock().now()
-        dt = (now - self.last_enc_time).nanoseconds / 1e9
-        if dt <= 0:
-            return
-        for name in ENCODER_NAMES:
+        # Per-wheel rpm from Pico-clock deltas (report timestamps), so
+        # host timer jitter and burst arrival (2 reports one tick, none
+        # the next) can't alias into rpm spikes. Wheels without a new
+        # report this tick keep their last measurement.
+        for name in self.enc_updated:
             if name not in self.enc_primed:
                 # Prime baseline on first report; enc_seen is marked this
                 # same tick, so a seen-check would never prime and the
                 # first delta would be the absolute count.
                 self.last_counts[name] = self.counts[name]
+                self.last_enc_us[name] = self.enc_us[name]
                 self.enc_primed.add(name)
+                continue
+            dt_us = self.enc_us[name] - self.last_enc_us[name]
+            if dt_us <= 0:
                 continue
             # ponytail: no int32 wrap handling; wraps after ~4M revs.
             delta = self.counts[name] - self.last_counts[name]
-            raw = delta * ENC_DIRECTIONS[name] * 60.0 / TICKS_PER_REV / dt
+            raw = (delta * ENC_DIRECTIONS[name] * 60.0 / TICKS_PER_REV
+                   / (dt_us / 1e6))
             self.raw_rpm[name] = raw
             # EMA: raw rpm quantizes ~±11 rpm steps at low speed
-            # (5 ticks per 20 ms at 27 rpm); filter before the PID sees it.
+            # (~2.4 ticks per 10 ms at 27 rpm); filter before the PID
+            # sees it.
             self.measured_rpm[name] = (
                 self.ema_alpha[name] * raw
                 + (1.0 - self.ema_alpha[name]) * self.measured_rpm[name])
             self.last_counts[name] = self.counts[name]
-        self.last_enc_time = now
+            self.last_enc_us[name] = self.enc_us[name]
+        self.enc_updated.clear()
 
     def publish_wheel_speeds(self, targets, cmds):
         msg = WheelSpeeds()
