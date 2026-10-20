@@ -29,7 +29,7 @@ ssh sentinel1@ts_sentinel "
       -o ../data && \
   deactivate
 " && \
-rm -rf data && \
-scp -r sentinel1@ts_sentinel:/home/sentinel1/dean/Sentinel/data \
-  ~/UF/EEL4924_senior_design/project && \
+rm -rf data && mkdir -p data && \
+scp 'sentinel1@ts_sentinel:/home/sentinel1/dean/Sentinel/data/*.png' \
+  ~/UF/EEL4924_senior_design/project/data && \
 open data/fl_step.png data/fr_step.png data/bl_step.png data/br_step.png
