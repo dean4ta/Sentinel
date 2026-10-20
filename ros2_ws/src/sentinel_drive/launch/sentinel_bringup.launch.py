@@ -43,7 +43,7 @@ def generate_launch_description():
 
     # Nav2 stack (brings its own map_server + amcl). nav:=true disables
     # the plain localization stack below.
-    nav = LaunchConfiguration('nav', default='false')
+    nav = LaunchConfiguration('nav', default='true')
     declare_nav = DeclareLaunchArgument('nav', default_value=nav)
 
     # AMCL on the saved map: lidar + EKF feeds (mapping.launch.py with
