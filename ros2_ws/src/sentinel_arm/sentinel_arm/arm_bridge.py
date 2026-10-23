@@ -27,9 +27,13 @@ class ArmBridge(Node):
         self.declare_parameter('port', '/dev/sentinel_arm')
         self.declare_parameter('baud', 115200)
         self.declare_parameter('read_rate', 10.0)
-        self.declare_parameter('spd', 50)   # T:101 steps/s
-        self.declare_parameter('acc', 10)   # T:101 acc units
-        self.declare_parameter('home', [0.0, 0.0, 1.575, 3.14])
+        self.declare_parameter('spd', 200)  # T:101 steps/s
+        self.declare_parameter('acc', 40)   # T:101 acc units
+        # [x,y,z] mm + [t] rad, moved to after the boot drain via
+        # T:1041 (XYZ direct). [0,0,0,0] = no home move. Must stay
+        # non-empty: an empty list default would infer BYTE_ARRAY in
+        # rclpy and reject double-array overrides.
+        self.declare_parameter('home', [0.0, 0.0, 0.0, 0.0])
 
         port = self.get_parameter('port').value
         baud = self.get_parameter('baud').value
@@ -59,17 +63,17 @@ class ArmBridge(Node):
         while time.time() < deadline:
             self.ser.read(4096)
         self.ser.reset_input_buffer()
-        # Optional startup move to the home pose (T:102 all joints).
+        # Optional startup move to the home pose (T:1041 XYZ direct).
         home = self.get_parameter('home').value
-        if home and len(home) == 4:
+        if home and len(home) == 4 and any(home):
             spd = self.get_parameter('spd').value
             acc = self.get_parameter('acc').value
             self._write(json.dumps(
-                {'T': 102, 'b': home[0], 's': home[1], 'e': home[2],
+                {'T': 1041, 'x': home[0], 'y': home[1], 'z': home[2],
                  't': home[3], 'spd': spd, 'acc': acc}))
             self.get_logger().info(
-                f'moving home: b={home[0]:.3f} s={home[1]:.3f} '
-                f'e={home[2]:.3f} t={home[3]:.3f}')
+                f'moving home: x={home[0]:.1f} y={home[1]:.1f} '
+                f'z={home[2]:.1f} t={home[3]:.3f}')
         while rclpy.ok():
             line = self.ser.readline()
             if line:

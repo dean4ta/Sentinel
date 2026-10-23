@@ -5,7 +5,7 @@
 #
 # Sensors checked here: rplidar (/scan), realsense gyro (gyro/sample),
 # pico (/encoder via /dev/sentinel_pico), logitech webcam (V4L2),
-# arm (/dev/sentinel_arm, base sweep -0.3 -> 0.0 at spd 50 acc 10).
+# arm (/dev/sentinel_arm, base sweep -0.3 -> 0.0 at spd 200 acc 40).
 #
 # Artifacts written to ~/sensor_test_out/: a 4-panel PNG (one lidar
 # scan, averaged webcam frame, encoder series, gyro series) and a
@@ -260,9 +260,9 @@ class SensorCheck(Node):
 
     def arm_move(self, target):
         # T:101 absolute joint move; poll until b lands near target.
-        # Spd 50 / acc 10 = the manual motion-test settings.
+        # Spd 200 / acc 40 = arm bridge settings.
         self.arm_ser.write(json.dumps(
-            {'T': 101, 'joint': 1, 'rad': target, 'spd': 50, 'acc': 10}
+            {'T': 101, 'joint': 1, 'rad': target, 'spd': 200, 'acc': 40}
         ).encode() + b'\n')
         for _ in range(20):
             p = self.arm_read_pose()

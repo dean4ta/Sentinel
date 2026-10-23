@@ -105,17 +105,17 @@ def generate_launch_description():
     )
 
     # Arm bridge: joint feedback + moves to the saved home pose after
-    # the ESP32 boot drain. Home was captured by hand (torque off,
-    # 2026-10-23); shoulder padded off its -1.57 limit.
+    # the ESP32 boot drain. Home is end-effector XYZ (mm) + gripper rad,
+    # captured by hand with torque off (2026-10-23).
     arm = Node(
         package='sentinel_arm',
         executable='arm_bridge',
         name='arm_bridge',
         output='screen',
         parameters=[{
-            'home': [-1.5002, -1.56, 3.0465, 3.1385],
-            'spd': 50,
-            'acc': 10,
+            'home': [3.28, -47.44, 69.38, 3.134],
+            'spd': 200,
+            'acc': 40,
         }],
     )
 
