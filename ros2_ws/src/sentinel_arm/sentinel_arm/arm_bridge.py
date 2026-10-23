@@ -41,6 +41,7 @@ class ArmBridge(Node):
         self.ser.dtr = False
         self.ser.rts = False
         self.write_lock = threading.Lock()
+        self.ready = False  # arm answered a pose read (boot done)
 
         # RX thread: drains the boot sequence, then parses feedback.
         self.rx_thread = threading.Thread(target=self._rx_loop,
@@ -63,9 +64,27 @@ class ArmBridge(Node):
         while time.time() < deadline:
             self.ser.read(4096)
         self.ser.reset_input_buffer()
+        # Handshake: ask for a pose until the arm answers (init
+        # sequence may still be settling at the 8 s mark). Commands
+        # sent earlier can wedge it, so nothing else writes yet.
+        deadline = time.time() + 15.0
+        while time.time() < deadline and not self.ready:
+            self.ser.write(b'{"T":105}\n')
+            line = self.ser.readline()
+            if line:
+                try:
+                    d = json.loads(line.decode(errors='replace').strip())
+                except ValueError:
+                    continue
+                if d.get('T') == 1051:
+                    self.ready = True
+                    self._handle_line(line.decode(errors='replace').strip())
+            time.sleep(0.2)
+        if not self.ready:
+            self.get_logger().warn('no pose feedback after boot drain')
         # Optional startup move to the home pose (T:1041 XYZ direct).
         home = self.get_parameter('home').value
-        if home and len(home) == 4 and any(home):
+        if home and len(home) == 4 and any(home) and self.ready:
             spd = self.get_parameter('spd').value
             acc = self.get_parameter('acc').value
             self._write(json.dumps(
@@ -100,6 +119,8 @@ class ArmBridge(Node):
     # --- ROS callbacks ---
 
     def _poll_timer(self):
+        if not self.ready:
+            return
         self._write('{"T":105}')
 
     def _goal_cb(self, msg):
