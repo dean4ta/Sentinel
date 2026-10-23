@@ -13,6 +13,7 @@ import time
 
 import serial
 import rclpy
+from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
@@ -29,8 +30,10 @@ class ArmBridge(Node):
         self.declare_parameter('read_rate', 10.0)
         self.declare_parameter('spd', 50)   # T:101 steps/s
         self.declare_parameter('acc', 10)   # T:101 acc units
-        self.declare_parameter('home', [])  # [b,s,e,t] rad: move here
-                                            # after boot drain; [] = skip
+        self.declare_parameter(
+            'home', [],  # [b,s,e,t] rad: move here after boot drain
+            descriptor=ParameterDescriptor(
+                type=ParameterType.PARAMETER_DOUBLE_ARRAY))
 
         port = self.get_parameter('port').value
         baud = self.get_parameter('baud').value
