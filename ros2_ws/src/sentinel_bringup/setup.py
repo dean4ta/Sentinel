@@ -19,6 +19,8 @@ setup(
             ['config/drive_params.yaml', 'config/ekf.yaml',
              'config/slam_params_online_async.yaml',
              'config/amcl_nav2_params.yaml']),
+        ('share/' + package_name + '/udev',
+            ['config/udev/99-sentinel-usb.rules']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -32,6 +34,7 @@ setup(
             'wheel_debug = sentinel_bringup.wheel_debug:main',
             'speed_step_test = sentinel_bringup.speed_step_test:main',
             'publish_initial_pose = sentinel_bringup.publish_initial_pose:main',
+            'sensor_check = sentinel_bringup.sensor_check:main',
         ],
     },
 )

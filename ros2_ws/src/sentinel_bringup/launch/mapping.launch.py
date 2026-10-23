@@ -45,7 +45,7 @@ def generate_launch_description():
             name='rplidar_node',
             parameters=[{
                 'channel_type': 'serial',
-                'serial_port': '/dev/ttyUSB0',
+                'serial_port': '/dev/sentinel_lidar',
                 'serial_baudrate': 115200,
                 'frame_id': 'laser',
                 'inverted': False,
