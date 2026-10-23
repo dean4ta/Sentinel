@@ -5,7 +5,7 @@
 #
 # Sensors checked here: rplidar (/scan), realsense gyro (gyro/sample),
 # pico (/encoder via /dev/sentinel_pico), logitech webcam (V4L2),
-# arm (/dev/sentinel_arm, base sweep -0.2 -> 0.0 at spd 50 acc 10).
+# arm (/dev/sentinel_arm, base sweep -0.3 -> 0.0 at spd 50 acc 10).
 #
 # Artifacts written to ~/sensor_test_out/: a 4-panel PNG (one lidar
 # scan, averaged webcam frame, encoder series, gyro series) and a
@@ -272,7 +272,7 @@ class SensorCheck(Node):
         return self.arm_read_pose()
 
     def check_arm_sweep(self):
-        # Move base -0.2 then back to 0.0. Opening the port resets the
+        # Move base -0.3 then back to 0.0. Opening the port resets the
         # ESP32 (DTR/RTS), so drain the ~8 s init sequence first.
         port = '/dev/sentinel_arm'
         try:
@@ -286,7 +286,7 @@ class SensorCheck(Node):
         while time.time() < deadline:
             self.arm_ser.read(4096)
         self.arm_ser.reset_input_buffer()
-        poses = {t: self.arm_move(t) for t in (-0.2, 0.0)}
+        poses = {t: self.arm_move(t) for t in (-0.3, 0.0)}
         self.arm_ser.close()
         # ~0.05 rad tolerance: real motion runs ~2% short of commanded.
         ok = all(p is not None and abs(p['b'] - t) < 0.05
@@ -294,7 +294,7 @@ class SensorCheck(Node):
         detail = ' -> '.join(
             f"{t}: b={p['b']:.3f}" if p else f'{t}: no pose'
             for t, p in poses.items())
-        self.check('sweep arm', ok, f'base -0.2 -> 0.0 ({detail})')
+        self.check('sweep arm', ok, f'base -0.3 -> 0.0 ({detail})')
 
     def check_webcam(self):
         if not HAVE_CV2:
