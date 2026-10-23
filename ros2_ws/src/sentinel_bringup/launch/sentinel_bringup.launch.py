@@ -104,6 +104,21 @@ def generate_launch_description():
         output='log',
     )
 
+    # Arm bridge: joint feedback + moves to the saved home pose after
+    # the ESP32 boot drain. Home was captured by hand (torque off,
+    # 2026-10-23); shoulder padded off its -1.57 limit.
+    arm = Node(
+        package='sentinel_arm',
+        executable='arm_bridge',
+        name='arm_bridge',
+        output='screen',
+        parameters=[{
+            'home': [-1.5002, -1.56, 3.0465, 3.1385],
+            'spd': 50,
+            'acc': 10,
+        }],
+    )
+
     return LaunchDescription([
         declare_mapping,
         declare_localize,
@@ -113,6 +128,7 @@ def generate_launch_description():
         localize_feeds,
         localization,
         navigation,
+        arm,
         rosbridge,
         rosapi,
     ])
