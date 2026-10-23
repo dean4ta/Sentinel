@@ -11,15 +11,15 @@
 # a second Pico on the bus must not steal the name.
 SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="000a", ATTRS{serial}=="E660D4A0A7695B37", SYMLINK+="sentinel_pico", MODE="0666"
 
-# RPLIDAR A1 (Silicon Labs CP210x UART bridge).
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="sentinel_lidar", MODE="0666"
+# RPLIDAR A1 (Silicon Labs CP210x UART bridge). Only CP2102 on the bus
+# besides the arm's, so match any CP2102 whose serial is not the arm's
+# programmed one. No port dependence.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}!="1251dd7e061cef1185f9a0d94909ffd0", SYMLINK+="sentinel_lidar", MODE="0666"
 
 # Logitech C270 webcam. index 0 = capture node (index 1 = metadata),
 # so the symlink always lands on the node a camera client should open.
 SUBSYSTEM=="video4linux", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="0825", ATTR{index}=="0", SYMLINK+="sentinel_webcam", MODE="0666"
 
-# Robot arm (RoArm-M2-S): VID:PID TBD once it enumerates on a live port.
-# SUBSYSTEM=="tty", ATTRS{idVendor}=="????", ATTRS{idProduct}=="????", SYMLINK+="sentinel_arm", MODE="0666"
-
-# Second lidar (EAI MB 12RT): VID:PID TBD when plugged in.
-# SUBSYSTEM=="tty", ATTRS{idVendor}=="????", ATTRS{idProduct}=="????", SYMLINK+="sentinel_lidar2", MODE="0666"
+# Robot arm (RoArm-M2-S): CP2102N with a unique programmed serial. Its
+# serial is what keeps it out of the sentinel_lidar rule above.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="1251dd7e061cef1185f9a0d94909ffd0", SYMLINK+="sentinel_arm", MODE="0666"

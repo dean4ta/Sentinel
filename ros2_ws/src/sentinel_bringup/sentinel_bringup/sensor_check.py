@@ -1,23 +1,25 @@
 # USB topology sensor test: probes every sensor on the new USB layout
 # and reports PASS/FAIL for connection and for data. Runs standalone
 # (`ros2 run sentinel_bringup sensor_check`) or as the checker inside
-# sensor_test.launch.py, which starts the sensor nodes for it.
+# usb_interface_test.launch.py, which starts the sensor nodes for it.
 #
 # Sensors checked here: rplidar (/scan), realsense gyro (gyro/sample),
-# pico (/encoder via /dev/sentinel_pico), logitech webcam (V4L2).
-# Arm + EAI lidar: deferred until plugged in (probe code returns
-# NOT PRESENT so the table stays honest).
+# pico (/encoder via /dev/sentinel_pico), logitech webcam (V4L2),
+# arm (/dev/sentinel_arm, base sweep -0.2 -> 0.0 at spd 50 acc 10).
 #
 # Artifacts written to ~/sensor_test_out/: a 4-panel PNG (one lidar
 # scan, averaged webcam frame, encoder series, gyro series) and a
 # report_<stamp>.txt with the table + averages.
 
+import json
 import math
 import os
+import time
 from datetime import datetime
 
 import numpy as np
 import rclpy
+import serial
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -38,6 +40,7 @@ except ImportError:
 WINDOW_S = 3.0
 OUT_DIR = os.path.expanduser('~/sensor_test_out')
 STAMP = datetime.now().strftime('%Y%m%d_%H%M%S')
+PNG_NAME = 'sensor_report.png'  # fixed name: each run overwrites
 
 
 def plot_series(series, title, ylabel, size=(600, 400), legend=None):
@@ -227,12 +230,71 @@ class SensorCheck(Node):
         # webcam: synchronous V4L2 grab while nothing else spins
         self.check_webcam()
 
-        # arm + EAI lidar: deferred until plugged in
-        self.skip('arm', 'not in lsusb (deferred)')
-        self.skip('eai_lidar2', 'not plugged (deferred)')
+        # arm: udev symlink + base sweep
+        arm_dev = os.path.exists('/dev/sentinel_arm')
+        self.check('connect arm', arm_dev,
+                   '/dev/sentinel_arm present' if arm_dev
+                   else '/dev/sentinel_arm missing')
+        if arm_dev:
+            self.check_arm_sweep()
+        else:
+            self.skip('sweep arm', 'no /dev/sentinel_arm')
 
         self.get_logger().info('=== DONE ===')
         self.save_artifacts()
+
+    def arm_read_pose(self):
+        self.arm_ser.write(b'{"T":105}\n')
+        end = time.time() + 2.0
+        while time.time() < end:
+            line = self.arm_ser.readline()
+            if not line:
+                continue
+            try:
+                d = json.loads(line.decode(errors='replace').strip())
+            except ValueError:
+                continue
+            if d.get('T') == 1051:
+                return {k: d.get(k) for k in ('b', 's', 'e', 't')}
+        return None
+
+    def arm_move(self, target):
+        # T:101 absolute joint move; poll until b lands near target.
+        # Spd 50 / acc 10 = the manual motion-test settings.
+        self.arm_ser.write(json.dumps(
+            {'T': 101, 'joint': 1, 'rad': target, 'spd': 50, 'acc': 10}
+        ).encode() + b'\n')
+        for _ in range(20):
+            p = self.arm_read_pose()
+            if p is not None and abs(p['b'] - target) < 0.01:
+                return p
+            time.sleep(0.5)
+        return self.arm_read_pose()
+
+    def check_arm_sweep(self):
+        # Move base -0.2 then back to 0.0. Opening the port resets the
+        # ESP32 (DTR/RTS), so drain the ~8 s init sequence first.
+        port = '/dev/sentinel_arm'
+        try:
+            self.arm_ser = serial.Serial(port, 115200, timeout=0.5)
+        except serial.SerialException as exc:
+            self.check('sweep arm', False, f'{port} open failed: {exc}')
+            return
+        self.arm_ser.dtr = False
+        self.arm_ser.rts = False
+        deadline = time.time() + 8.0
+        while time.time() < deadline:
+            self.arm_ser.read(4096)
+        self.arm_ser.reset_input_buffer()
+        poses = {t: self.arm_move(t) for t in (-0.2, 0.0)}
+        self.arm_ser.close()
+        # ~0.05 rad tolerance: real motion runs ~2% short of commanded.
+        ok = all(p is not None and abs(p['b'] - t) < 0.05
+                 for t, p in poses.items())
+        detail = ' -> '.join(
+            f"{t}: b={p['b']:.3f}" if p else f'{t}: no pose'
+            for t, p in poses.items())
+        self.check('sweep arm', ok, f'base -0.2 -> 0.0 ({detail})')
 
     def check_webcam(self):
         if not HAVE_CV2:
@@ -287,7 +349,7 @@ class SensorCheck(Node):
     def save_artifacts(self):
         os.makedirs(OUT_DIR, exist_ok=True)
         report_path = os.path.join(OUT_DIR, f'report_{STAMP}.txt')
-        png_path = os.path.join(OUT_DIR, f'sensor_report_{STAMP}.png')
+        png_path = os.path.join(OUT_DIR, PNG_NAME)
 
         lines = [f'Sentinel 1 sensor test report {STAMP}', '']
         for name, ok, detail in self.results:

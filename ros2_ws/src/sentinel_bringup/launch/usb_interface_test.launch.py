@@ -4,7 +4,7 @@
 # shuts the whole launch down.
 #
 #   source ~/dean/rs2_ws/install/setup.bash   # source-built realsense2_camera
-#   ros2 launch sentinel_bringup sensor_test.launch.py
+#   ros2 launch sentinel_bringup usb_interface_test.launch.py
 #
 # Starts: rplidar driver (/scan), realsense gyro-only, cmd_vel_serial
 # (pico gateway, idles neutral without /cmd_vel), sensor_check (webcam

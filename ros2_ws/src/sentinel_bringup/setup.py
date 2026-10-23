@@ -15,7 +15,7 @@ setup(
              'launch/sentinel_bringup.launch.py',
              'launch/localization.launch.py',
              'launch/navigation.launch.py',
-             'launch/sensor_test.launch.py']),
+             'launch/usb_interface_test.launch.py']),
         ('share/' + package_name + '/config',
             ['config/drive_params.yaml', 'config/ekf.yaml',
              'config/slam_params_online_async.yaml',

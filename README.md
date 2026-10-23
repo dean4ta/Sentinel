@@ -16,6 +16,7 @@ Sentinel 1 is an autonomous retail security and assistance robot for the Loss Pr
   - `src/sentinel_msgs/` — custom messages (EncoderCounts, WheelSpeeds, WheelConsistency, StepEvent)
   - `src/sentinel_drive_cpp/` — C++ drive stack (gamepad → Pico gateway, slip detection, wheel odometry)
   - `src/sentinel_bringup/` — gamepad_twist, launch files, and shared config (drive, fusion, mapping, localization, navigation)
+  - `src/sentinel_arm/` — RoArm-M2-S serial bridge (joint states / goals)
 - `firmware/` — RP2040 Pico firmware (motors, encoders, IMU)
 - `utils/` — scripts for tuning and analysis on the Mac (bag plotting, slip-compensation replay)
 - `docs/` — robot research notes
