@@ -243,26 +243,31 @@ class SensorCheck(Node):
             return None
         ok = cap.get(cv2.CAP_PROP_FRAME_WIDTH) > 0
         self.check('connect webcam', ok, f'V4L2 device opens ({opened})')
-        # 20 frames, averaged: noise floor image for the report.
+        # C270 auto-exposure needs ~0.7 s to ramp up from a dark start:
+        # the first ~20 frames read back as pure black (verified with a
+        # probe on the robot). Discard until frames carry light, then
+        # average the bright ones.
         acc = None
         frames = 0
-        for _ in range(20):
+        for _ in range(60):
             got, frame = cap.read()
             if not got:
                 continue
+            if frame.mean() < 5.0 and frames == 0:
+                continue  # still in warmup
             frames += 1
-            if acc is None:
-                acc = frame.astype(np.float32)
-            else:
-                acc += frame
+            acc = frame if acc is None else acc + frame.astype(np.float32)
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         cap.release()
-        self.check('data webcam', frames >= 8,
-                   f'{frames}/20 frames, {w}x{h}')
-        if acc is None:
+        if frames == 0:
+            self.check('data webcam', False,
+                       'all 60 frames black (exposure never ramped)')
             return None
         avg = (acc / frames).astype(np.uint8)
+        bright = avg.mean() > 5.0
+        self.check('data webcam', frames >= 8 and bright,
+                   f'{frames}/60 bright frames, {w}x{h}')
         cv2.putText(avg, 'webcam: average of frames', (10, 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
         self.webcam_img = avg
