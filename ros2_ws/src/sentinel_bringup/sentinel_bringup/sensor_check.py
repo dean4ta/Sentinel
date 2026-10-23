@@ -18,6 +18,7 @@ from datetime import datetime
 
 import numpy as np
 import rclpy
+from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu, LaserScan
@@ -114,6 +115,9 @@ class SensorCheck(Node):
             self.create_subscription(
                 EncoderCounts, '/encoder', self.enc_cb, 10)
 
+        # Wiggle source: cmd_vel_serial acts on /cmd_vel.
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+
     # --- callbacks: collect during the sample window ---
 
     def scan_cb(self, msg):
@@ -146,22 +150,39 @@ class SensorCheck(Node):
         self.results.append((name, None, detail))
         self.get_logger().info(f'[SKIP] {name}: {detail}')
 
+    def wiggle(self):
+        # 0.1 s at +0.5 m/s then 0.1 s at -0.5 m/s on X: the robot
+        # steps forward a few cm and back, so the encoder graph shows
+        # a rising and falling step. Gateway writes at 100 Hz, so each
+        # brief publish is picked up; stops after each are explicit.
+        for v in (0.5, -0.5):
+            move = Twist()
+            move.linear.x = v
+            self.cmd_pub.publish(move)
+            end = self.get_clock().now() + \
+                rclpy.duration.Duration(seconds=0.1)
+            while rclpy.ok() and self.get_clock().now() < end:
+                rclpy.spin_once(self, timeout_sec=0.01)
+            self.cmd_pub.publish(Twist())
+
     def run_checks(self):
         self.get_logger().info('=== USB SENSOR TEST ===')
 
-        # pico: device node + encoder stream. Robot is stationary during
-        # the test, so counts must hold constant while messages flow.
+        # pico: device node + encoder stream. The out-and-back wiggle at
+        # window start moves the counts, so a live link shows as nonzero
+        # max-min spread (endpoints alone would net back to ~0).
         pico_dev = os.path.exists('/dev/sentinel_pico')
         self.check('connect pico', pico_dev,
                    '/dev/sentinel_pico present' if pico_dev
                    else '/dev/sentinel_pico missing')
-        if HAVE_MSGS and self.enc_msgs > 0:
-            first = self.enc_samples[0]
-            last = self.enc_samples[-1]
-            moving = tuple(last[i + 1] - first[i + 1] for i in range(4))
-            self.check('data pico', self.enc_msgs >= 10,
-                       f'{self.enc_msgs} msgs, count delta {moving} '
-                       f'(stationary: delta 0 expected)')
+        if HAVE_MSGS and self.enc_samples:
+            e = np.array(self.enc_samples)
+            spread = tuple(int(e[:, i].max() - e[:, i].min())
+                           for i in range(1, 5))
+            self.check('data pico',
+                       len(self.enc_samples) >= 10 and max(spread) > 0,
+                       f'{len(self.enc_samples)} msgs, count spread {spread} '
+                       f'(wiggle expected: nonzero)')
         elif HAVE_MSGS:
             self.check('data pico', False, 'no /encoder messages')
         else:
@@ -207,19 +228,21 @@ class SensorCheck(Node):
             self.check('connect webcam', False, 'cv2 not importable')
             self.check('data webcam', False, 'skipped (no cv2)')
             return None
-        # C270 exposes two video nodes (capture + metadata); cv2 opens
-        # the first working one.
+        # Open the C270 by udev symlink first: index scan found the
+        # realsense's UVC nodes first (RSUSB = native UVC on /dev/video*).
         cap = None
-        for idx in range(4):
-            cap = cv2.VideoCapture(idx)
+        opened = None
+        for src in ['/dev/sentinel_webcam', 0, 1, 2, 3]:
+            cap = cv2.VideoCapture(src)
             if cap.isOpened():
+                opened = src
                 break
         if cap is None or not cap.isOpened():
             self.check('connect webcam', False, 'no /dev/video node opens')
             self.check('data webcam', False, 'skipped (no device)')
             return None
         ok = cap.get(cv2.CAP_PROP_FRAME_WIDTH) > 0
-        self.check('connect webcam', ok, 'V4L2 device opens')
+        self.check('connect webcam', ok, f'V4L2 device opens ({opened})')
         # 20 frames, averaged: noise floor image for the report.
         acc = None
         frames = 0
@@ -316,6 +339,9 @@ def main(args=None):
     rclpy.init(args=args)
     node = SensorCheck()
     try:
+        # 0.1 s /cmd_vel wiggle first: encoder graph then shows real
+        # counts instead of a flat zero line.
+        node.wiggle()
         # Collect for the window, then evaluate everything at once.
         deadline = node.get_clock().now() + \
             rclpy.duration.Duration(seconds=WINDOW_S)
