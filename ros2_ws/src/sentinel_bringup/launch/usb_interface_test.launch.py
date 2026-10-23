@@ -13,9 +13,8 @@ import os
 
 from launch import LaunchDescription
 from launch.actions import (RegisterEventHandler, SetEnvironmentVariable,
-                            Shutdown, TimerAction, ExecuteProcess)
-from launch.event_handlers import OnProcessExit, OnShutdown
-from launch.substitutions import PathJoinSubstitution
+                            Shutdown, TimerAction)
+from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -101,17 +100,5 @@ def generate_launch_description():
         )
     )
 
-    # On any shutdown, drop DTR on the lidar's CP2102 so the A1 motor
-    # stops even if the driver died hard (its own motor-off path only
-    # runs on a graceful exit).
-    motor_off = RegisterEventHandler(
-        OnShutdown(on_shutdown=[ExecuteProcess(
-            cmd=['python3',
-                 PathJoinSubstitution([SHARE, 'scripts/lidar_motor_off.py']),
-                 '/dev/sentinel_lidar'],
-            output='screen',
-        )])
-    )
-
     return LaunchDescription([env, realsense, rplidar, serial_node,
-                              check_node, done, motor_off])
+                              check_node, done])

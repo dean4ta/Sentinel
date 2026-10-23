@@ -11,11 +11,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
-                            IncludeLaunchDescription, RegisterEventHandler,
-                            TimerAction)
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
-from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -80,17 +77,5 @@ def generate_launch_description():
         condition=IfCondition(slam),
     )
 
-    # On any shutdown, drop DTR on the lidar's CP2102 so the A1 motor
-    # stops even if the driver died hard (its own motor-off path only
-    # runs on a graceful exit).
-    motor_off = RegisterEventHandler(
-        OnShutdown(on_shutdown=[ExecuteProcess(
-            cmd=['python3',
-                 os.path.join(SHARE, 'scripts', 'lidar_motor_off.py'),
-                 '/dev/sentinel_lidar'],
-            output='screen',
-        )])
-    )
-
     return LaunchDescription(
-        [declare_slam, fusion, rplidar, laser_tf, slam_include, motor_off])
+        [declare_slam, fusion, rplidar, laser_tf, slam_include])
