@@ -4,6 +4,7 @@ After=dev-sentinel_lidar.device
 BindsTo=dev-sentinel_lidar.device
 
 [Service]
+User=sentinel1
 ExecStart=/usr/bin/python3 /home/sentinel1/dean/Sentinel/ros2_ws/src/sentinel_bringup/scripts/lidar_motor_brake.py
 Restart=always
 RestartSec=2
