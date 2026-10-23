@@ -127,8 +127,10 @@ class SensorCheck(Node):
             msg.angular_velocity.z))
 
     def enc_cb(self, msg):
+        # EncoderCounts carries no header/stamp; time it with the node
+        # clock (arrival order is all the plot needs).
         self.enc_samples.append((
-            msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9,
+            self.get_clock().now().nanoseconds * 1e-9,
             msg.fl, msg.fr, msg.bl, msg.br))
         self.enc_msgs += 1
 
