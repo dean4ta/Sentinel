@@ -153,15 +153,26 @@ class SensorCheck(Node):
     def wiggle(self):
         # 0.1 s at +0.5 m/s then 0.1 s at -0.5 m/s on X: the robot
         # steps forward a few cm and back, so the encoder graph shows
-        # a rising and falling step. Gateway writes at 100 Hz, so each
-        # brief publish is picked up; stops after each are explicit.
+        # a rising and falling step.
+        #
+        # Two delivery guards: wait for a /cmd_vel subscriber before
+        # publishing (a single publish right after publisher creation
+        # races DDS discovery - same bug as publish_initial_pose.py),
+        # then republish through each window so the gateway latches a
+        # fresh nonzero command even if an early message drops.
+        deadline = self.get_clock().now() + \
+            rclpy.duration.Duration(seconds=3.0)
+        while rclpy.ok() and self.get_clock().now() < deadline:
+            if self.cmd_pub.get_subscription_count() > 0:
+                break
+            rclpy.spin_once(self, timeout_sec=0.1)
         for v in (0.5, -0.5):
             move = Twist()
             move.linear.x = v
-            self.cmd_pub.publish(move)
             end = self.get_clock().now() + \
                 rclpy.duration.Duration(seconds=0.1)
             while rclpy.ok() and self.get_clock().now() < end:
+                self.cmd_pub.publish(move)
                 rclpy.spin_once(self, timeout_sec=0.01)
             self.cmd_pub.publish(Twist())
 
