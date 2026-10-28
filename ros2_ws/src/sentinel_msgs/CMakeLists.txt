@@ -14,6 +14,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/WheelSpeeds.msg"
   "msg/StepEvent.msg"
   "msg/WheelConsistency.msg"
+  "msg/GripperSensors.msg"
   DEPENDENCIES std_msgs
 )
 
