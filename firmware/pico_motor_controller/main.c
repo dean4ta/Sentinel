@@ -7,6 +7,7 @@
 #include "pico/stdlib.h"
 #include "hardware/pwm.h"
 #include "hardware/gpio.h"
+#include "hardware/adc.h"
 
 // ============================================================
 // Pin configuration
@@ -35,6 +36,16 @@
 
 #define BL_ENC_A 12
 #define BL_ENC_B 13
+
+// Gripper analog sensors
+// Purple (hinge) -> GP27 = ADC1, blue (anvil) -> GP26 = ADC0.
+// Raw 12-bit ADC counts over serial; Jetson converts to volts.
+#define GRIP_HINGE_ADC 1
+#define GRIP_ANVIL_ADC 0
+#define GRIP_ADC_PIN_HINGE 27
+#define GRIP_ADC_PIN_ANVIL 26
+#define GRIP_ADC_SAMPLES 8
+#define GRIP_REPORT_INTERVAL_US 100000ULL  // 10 Hz
 
 // ============================================================
 // Motor PWM configuration
@@ -313,6 +324,44 @@ static void encoders_init(void)
 }
 
 // ============================================================
+// Gripper analog sensors
+// ============================================================
+
+static uint32_t grip_read_adc(uint adc_input)
+{
+    adc_select_input(adc_input);
+
+    uint32_t sum = 0;
+
+    for (uint i = 0; i < GRIP_ADC_SAMPLES; i++) {
+        sum += adc_read();
+    }
+
+    return sum / GRIP_ADC_SAMPLES;
+}
+
+static void gripper_init(void)
+{
+    adc_init();
+
+    adc_gpio_init(GRIP_ADC_PIN_HINGE);
+    adc_gpio_init(GRIP_ADC_PIN_ANVIL);
+}
+
+static void print_gripper(void)
+{
+    uint32_t hinge = grip_read_adc(GRIP_HINGE_ADC);
+    uint32_t anvil = grip_read_adc(GRIP_ANVIL_ADC);
+
+    uint64_t now_us = time_us_64();
+
+    printf("GR %lu %lu %llu\n",
+        (unsigned long)hinge,
+        (unsigned long)anvil,
+        (unsigned long long)now_us);
+}
+
+// ============================================================
 // Serial command handling
 // ============================================================
 
@@ -449,9 +498,13 @@ int main(void)
     // Encoders
     encoders_init();
 
+    // Gripper sensors
+    gripper_init();
+
     last_motor_command_us = time_us_64();
 
     uint64_t last_encoder_report_us = time_us_64();
+    uint64_t last_gripper_report_us = time_us_64();
 
     while (true) {
 
@@ -485,6 +538,18 @@ int main(void)
             last_encoder_report_us = now_us;
 
             print_encoder_counts();
+        }
+
+        // ----------------------------------------------------
+        // Gripper reporting (10 Hz)
+        // ----------------------------------------------------
+
+        if ((now_us - last_gripper_report_us) >=
+            GRIP_REPORT_INTERVAL_US) {
+
+            last_gripper_report_us = now_us;
+
+            print_gripper();
         }
 
         // Small sleep to avoid spinning unnecessarily.

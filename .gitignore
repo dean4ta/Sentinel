@@ -25,3 +25,6 @@ utils/simple_wheel_control_test.sh
 
 # firmware artifacts
 firmware/pico_motor_controller/build/
+
+# debug code
+firmware/pico_eai_lidar_driver

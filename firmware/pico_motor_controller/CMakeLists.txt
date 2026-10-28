@@ -17,6 +17,7 @@ target_link_libraries(pico_motor_controller
     pico_stdlib
     hardware_pwm
     hardware_gpio
+    hardware_adc
 )
 
 pico_enable_stdio_usb(pico_motor_controller 1)

@@ -24,11 +24,13 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sentinel_msgs/msg/encoder_counts.hpp"
+#include "sentinel_msgs/msg/gripper_sensors.hpp"
 #include "sentinel_msgs/msg/wheel_speeds.hpp"
 #include "std_msgs/msg/string.hpp"
 
 using geometry_msgs::msg::Twist;
 using sentinel_msgs::msg::EncoderCounts;
+using sentinel_msgs::msg::GripperSensors;
 using sentinel_msgs::msg::WheelSpeeds;
 using std_msgs::msg::String;
 
@@ -127,6 +129,7 @@ public:
       [this](const String::SharedPtr m) {wheel_cmd_cb(m);});
     encoder_pub_ = create_publisher<EncoderCounts>("/encoder", 10);
     wheel_speeds_pub_ = create_publisher<WheelSpeeds>("/wheel_speeds", 10);
+    gripper_pub_ = create_publisher<GripperSensors>("/gripper", 10);
 
     auto now = get_clock()->now();
     last_wheel_cmd_ = now;
@@ -237,9 +240,32 @@ private:
       }
       std::istringstream is(line);
       std::string name;
+      if (!(is >> name)) {
+        continue;
+      }
+      if (name == "GR") {
+        // Gripper sensor line: "GR <hinge> <anvil> <us>". The Pico
+        // drives the 10 Hz rate; publish on receipt.
+        int hinge;
+        int anvil;
+        int64_t us;
+        if (!(is >> hinge >> anvil >> us)) {
+          continue;
+        }
+        std::string rest;
+        if (is >> rest) {
+          continue;
+        }
+        (void)us;  // Pico-clock timestamp; unused for gripper
+        GripperSensors msg;
+        msg.hinge = static_cast<uint16_t>(hinge);
+        msg.anvil = static_cast<uint16_t>(anvil);
+        gripper_pub_->publish(msg);
+        continue;
+      }
       int value;
       int64_t us;
-      if (!(is >> name >> value >> us)) {
+      if (!(is >> value >> us)) {
         continue;
       }
       std::string rest;
@@ -463,6 +489,7 @@ private:
   rclcpp::Subscription<String>::SharedPtr wheel_cmd_sub_;
   rclcpp::Publisher<EncoderCounts>::SharedPtr encoder_pub_;
   rclcpp::Publisher<WheelSpeeds>::SharedPtr wheel_speeds_pub_;
+  rclcpp::Publisher<GripperSensors>::SharedPtr gripper_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 
