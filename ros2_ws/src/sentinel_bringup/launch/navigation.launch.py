@@ -16,14 +16,21 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 SHARE = get_package_share_directory('sentinel_bringup')
 
 
 def generate_launch_description():
+    # Passed through to nav2_bringup; log_level:=debug enables the
+    # per-node debug output for planner/controller/bt/behavior/etc.
+    log_level = LaunchConfiguration('log_level')
+    declare_log_level = DeclareLaunchArgument(
+        'log_level', default_value='info')
+
     nav2 = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(get_package_share_directory('nav2_bringup'),
@@ -39,6 +46,7 @@ def generate_launch_description():
             'use_composition': 'False',
             'use_respawn': 'False',
             'slam': 'False',
+            'log_level': log_level,
         }.items(),
     )
 
@@ -55,4 +63,4 @@ def generate_launch_description():
         ],
     )
 
-    return LaunchDescription([nav2, initial_pose])
+    return LaunchDescription([declare_log_level, nav2, initial_pose])

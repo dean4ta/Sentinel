@@ -39,7 +39,6 @@ setup(
             'sensor_check = sentinel_bringup.sensor_check:main',
             'note_taker = sentinel_bringup.note_taker:main',
             'programmer_notation = sentinel_bringup.programmer_notation:main',
-            'debug_logger = sentinel_bringup.debug_logger:main',
         ],
     },
 )

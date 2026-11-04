@@ -75,9 +75,16 @@ def generate_launch_description():
         condition=localize_condition,
     )
 
+    # Nav2 node log level: log_level:=debug for planner/controller/bt/
+    # behavior debug output (see navigation.launch.py).
+    log_level = LaunchConfiguration('log_level', default='info')
+    declare_log_level = DeclareLaunchArgument(
+        'log_level', default_value=log_level)
+
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(SHARE, 'launch', 'navigation.launch.py')),
+        launch_arguments={'log_level': log_level}.items(),
         condition=IfCondition(nav),
     )
 
@@ -136,6 +143,7 @@ def generate_launch_description():
         declare_mapping,
         declare_localize,
         declare_nav,
+        declare_log_level,
         declare_take_notes,
         drive,
         map_stack,

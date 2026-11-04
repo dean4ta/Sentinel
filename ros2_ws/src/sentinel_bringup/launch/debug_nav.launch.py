@@ -1,15 +1,14 @@
-# Navigation debug companion. Run alongside a live nav2 stack:
+# Navigation debug companion: curated ros2 bag recorder. Run alongside
+# a live nav2 stack (started with log_level:=debug for node logs):
 #
 #   ros2 launch sentinel_bringup debug_nav.launch.py
 #
-# Starts a curated ros2 bag recorder and a one-shot node that flips the
-# key nav2 nodes to 'debug' logging. Bag lands in ~/bags/nav_debug_<ts>.
+# Bag lands in ~/bags/nav_debug_<timestamp>.
 import os
 import time
 
 from launch import LaunchDescription
 from launch.actions import ExecuteProcess
-from launch_ros.actions import Node
 
 TOPICS = [
     '/tf', '/tf_static', '/odom', '/amcl_pose', '/scan', '/map',
@@ -33,11 +32,4 @@ def generate_launch_description():
         output='screen',
     )
 
-    logger = Node(
-        package='sentinel_bringup',
-        executable='debug_logger',
-        name='debug_logger',
-        output='screen',
-    )
-
-    return LaunchDescription([bag, logger])
+    return LaunchDescription([bag])
