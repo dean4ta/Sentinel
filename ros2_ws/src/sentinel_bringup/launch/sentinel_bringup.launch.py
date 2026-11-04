@@ -81,6 +81,19 @@ def generate_launch_description():
         condition=IfCondition(nav),
     )
 
+    # Programmer notes logger: take-notes:=true also starts the note
+    # logger; pair it with `ros2 run sentinel_bringup note_taker`.
+    take_notes = LaunchConfiguration('take-notes', default='false')
+    declare_take_notes = DeclareLaunchArgument(
+        'take-notes', default_value=take_notes)
+    notes = Node(
+        package='sentinel_bringup',
+        executable='programmer_notation',
+        name='programmer_notation',
+        output='screen',
+        condition=IfCondition(take_notes),
+    )
+
     # Foxglove bridge on :9090. Own node defs instead of the stock
     # include: output='log' sends the "write queue full" chatter to
     # ~/.ros/log instead of the console, and write_queue_size is raised
@@ -123,11 +136,13 @@ def generate_launch_description():
         declare_mapping,
         declare_localize,
         declare_nav,
+        declare_take_notes,
         drive,
         map_stack,
         localize_feeds,
         localization,
         navigation,
+        notes,
         arm,
         rosbridge,
         rosapi,
