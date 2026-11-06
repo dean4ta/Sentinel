@@ -15,6 +15,7 @@ import serial
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
+from sentinel_msgs.srv import SetTorque
 
 JOINT_IDS = {'base': 1, 'shoulder': 2, 'elbow': 3, 'clamp': 4}
 JOINT_NAMES = ['base', 'shoulder', 'elbow', 'clamp']
@@ -52,6 +53,8 @@ class ArmBridge(Node):
             JointState, 'arm/joint_states', 10)
         self.goal_sub = self.create_subscription(
             JointState, 'arm/joint_goals', self._goal_cb, 10)
+        self.torque_srv = self.create_service(
+            SetTorque, 'arm/torque', self._torque_cb)
         rate = self.get_parameter('read_rate').value
         self.timer = self.create_timer(1.0 / rate, self._poll_timer)
         self.get_logger().info(f'Arm bridge on {port} @ {baud}')
@@ -131,6 +134,18 @@ class ArmBridge(Node):
                 self._write(
                     f'{{"T":101,"joint":{JOINT_IDS[name]},'
                     f'"rad":{rad},"spd":{spd},"acc":{acc}}}')
+
+    def _torque_cb(self, req, resp):
+        # T:210: cmd:0 releases the motors (hand-guiding / manual teach),
+        # cmd:1 locks them. Any subsequent motion command re-locks, so
+        # callers should re-enable torque before starting playback.
+        if not self.ready:
+            resp.success = False
+            return resp
+        cmd = 1 if req.enable else 0
+        self._write(f'{{"T":210,"cmd":{cmd}}}')
+        resp.success = True
+        return resp
 
 
 def main(args=None):

@@ -1,0 +1,13 @@
+# Waypoint sequence management. Subcommands:
+#   list                       -> list waypoint names
+#   remove <name>              -> delete a waypoint
+#   rename <old> <new>         -> rename a waypoint
+#   reorder <name> <index>     -> move waypoint to 0-based index
+#   clear                      -> delete all waypoints
+#   save <filename>            -> save to waypoint_dir/<filename>.yaml
+#   load <filename>            -> replace sequence with file contents
+string cmd
+string arg
+---
+bool success
+string message

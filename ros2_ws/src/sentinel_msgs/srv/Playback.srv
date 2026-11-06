@@ -1,0 +1,10 @@
+# Playback control:
+#   start <filename>  - load waypoint_dir/<filename>.yaml and play it
+#   pause             - hold current joints, stay at current waypoint
+#   resume            - continue from the paused waypoint
+#   stop              - hold current joints, return to idle
+string cmd
+string filename
+---
+bool success
+string message

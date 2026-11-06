@@ -1,0 +1,6 @@
+# Arm torque lock (RoArm-M2-S T:210). enable=false releases the motors
+# so the arm can be moved by hand (manual teach). Any subsequent motion
+# command re-locks torque.
+bool enable
+---
+bool success

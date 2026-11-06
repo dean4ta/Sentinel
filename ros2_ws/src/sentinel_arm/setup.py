@@ -11,7 +11,8 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch',
-            ['launch/arm_bridge.launch.py']),
+            ['launch/arm_bridge.launch.py',
+             'launch/arm_teach.launch.py']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -22,6 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             'arm_bridge = sentinel_arm.arm_bridge:main',
+            'arm_teach = sentinel_arm.arm_teach:main',
         ],
     },
 )

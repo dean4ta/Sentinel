@@ -15,6 +15,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/StepEvent.msg"
   "msg/WheelConsistency.msg"
   "msg/GripperSensors.msg"
+  "srv/SetTorque.srv"
+  "srv/RecordWaypoint.srv"
+  "srv/WaypointCmd.srv"
+  "srv/Playback.srv"
   DEPENDENCIES std_msgs
 )
 
