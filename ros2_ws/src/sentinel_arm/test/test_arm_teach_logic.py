@@ -231,6 +231,19 @@ with tempfile.TemporaryDirectory() as d:
     check(n.play_state == 'idle', 'timeout aborts playback')
     check(any('not reached' in s for s in statuses(n)), 'timeout status')
 
+    # ignore list: a joint that never converges doesn't block arrival
+    n.traj = Trajectory(name='t2')
+    n.traj.add(Waypoint('hold', [0.0, 0.0, 0.0, 0.0], ignore=['clamp']))
+    n.play_state = 'playing'
+    n.play_index = 0
+    n.goal = None
+    n._tick()  # sends goal
+    n._state_cb(jstate([0.0, 0.0, 0.0, 9.0]))  # clamp nowhere near
+    n._tick()
+    n._tick()
+    check(n.play_state == 'idle' and 'done' in statuses(n),
+          'ignored joint does not block arrival')
+
     # --- pause / resume / stop ---
     r = svc(n._play_cb, cmd='start', filename='demo')
     check(getattr(r, 'success', False), 'restart for pause test')

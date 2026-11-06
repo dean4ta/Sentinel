@@ -10,6 +10,9 @@
 #     - name: home
 #       position: [0.00, 0.50, -0.30, 0.00]
 #       delay_after: 0.5
+#     - name: grasp
+#       position: [0.35, 0.70, -0.60, 3.14]
+#       ignore: [clamp]      # gripper stalls against the object: fine
 #
 # position order is fixed to JOINT_NAMES; load validates it.
 
@@ -30,9 +33,10 @@ class WaypointError(Exception):
 
 
 class Waypoint:
-    """One taught pose: joint angles (rad) + optional hold after moving."""
+    """One taught pose: joint angles (rad), optional hold after moving,
+    and optionally joints exempt from the arrival check (ignore)."""
 
-    def __init__(self, name, position, delay_after=0.0):
+    def __init__(self, name, position, delay_after=0.0, ignore=None):
         if not isinstance(name, str) or not _NAME_RE.match(name):
             raise WaypointError(f'invalid waypoint name {name!r}')
         if len(position) != NUM_JOINTS:
@@ -42,14 +46,23 @@ class Waypoint:
         delay_after = float(delay_after)
         if delay_after < 0:
             raise WaypointError(f'{name!r}: negative delay_after')
+        ignore = list(ignore or [])
+        bad = [j for j in ignore if j not in JOINT_NAMES]
+        if bad:
+            raise WaypointError(f'{name!r}: unknown joints in ignore: {bad}')
+        if len(set(ignore)) != len(ignore):
+            raise WaypointError(f'{name!r}: duplicate joints in ignore')
         self.name = name
         self.position = [float(x) for x in position]
         self.delay_after = delay_after
+        self.ignore = ignore
 
     def to_dict(self):
         d = {'name': self.name, 'position': self.position}
         if self.delay_after:
             d['delay_after'] = self.delay_after
+        if self.ignore:
+            d['ignore'] = self.ignore
         return d
 
     @classmethod
@@ -61,7 +74,8 @@ class Waypoint:
             position = d['position']
         except KeyError as e:
             raise WaypointError(f'waypoint missing {e}')
-        return cls(name, position, d.get('delay_after', 0.0))
+        return cls(name, position, d.get('delay_after', 0.0),
+                   d.get('ignore'))
 
 
 class Trajectory:

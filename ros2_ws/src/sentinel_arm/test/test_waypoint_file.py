@@ -80,6 +80,22 @@ t.remove('grasp')
 check(t.names() == ['lift', 'start'], 'remove result')
 t.clear()
 check(t.names() == [], 'clear result')
+
+# ignore list
+t.add(Waypoint('hold', [0.0] * NUM_JOINTS, ignore=['clamp']))
+check(t.waypoints[0].ignore == ['clamp'], 'ignore kept')
+expect_error(lambda: t.add(Waypoint('badj', [0] * NUM_JOINTS,
+                                    ignore=['nose'])),
+             'unknown ignore joint accepted')
+expect_error(lambda: t.add(Waypoint('dupj', [0] * NUM_JOINTS,
+                                    ignore=['clamp', 'clamp'])),
+             'duplicate ignore joint accepted')
+with tempfile.TemporaryDirectory() as d:
+    path = os.path.join(d, 'ig.yaml')
+    t.save_file(path)
+    t3 = Trajectory.load_file(path)
+    check(t3.waypoints[0].ignore == ['clamp'], 'ignore roundtrip')
+
 check(JOINT_NAMES == ['base', 'shoulder', 'elbow', 'clamp'], 'JOINT_NAMES')
 
 if FAIL:

@@ -99,7 +99,10 @@ class ArmTeach(Node):
     def _reached(self):
         if not self._joint_pos or self.goal is None:
             return False
+        ignore = self.traj.waypoints[self.play_index].ignore
         for name, target in zip(JOINT_NAMES, self.goal):
+            if name in ignore:
+                continue
             if name not in self._joint_pos:
                 return False
             if abs(self._joint_pos[name] - target) > self.reach_tol:
