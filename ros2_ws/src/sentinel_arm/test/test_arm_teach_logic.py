@@ -219,17 +219,26 @@ with tempfile.TemporaryDirectory() as d:
           [[0.0, 0.0, 0.0, 0.0], [0.1, 0.2, -0.3, 0.4]],
           'goals published in order')
 
-    # --- timeout aborts ---
+    # --- timeout skips to next waypoint ---
     n.timeout = 0.05
     n.play_state = 'playing'
     n.play_index = 0
     n.goal = None
-    n._tick()  # sends p1 again
+    n._tick()  # sends p1
     n._state_cb(jstate([9.0, 9.0, 9.0, 9.0]))  # never converges
     time.sleep(0.06)
     n._tick()
-    check(n.play_state == 'idle', 'timeout aborts playback')
-    check(any('not reached' in s for s in statuses(n)), 'timeout status')
+    check(n.play_state == 'playing' and n.play_index == 1,
+          'timeout skips to next waypoint')
+    check(any('skipping to next waypoint' in s for s in statuses(n)),
+          'skip status')
+    n._tick()  # sends p2
+    check(n.goal is not None, 'next goal sent after skip')
+    time.sleep(0.06)
+    n._tick()  # p2 also times out; it was the last -> playback ends
+    check(n.play_state == 'idle', 'skipping past last waypoint ends playback')
+    check(any('done (last waypoint skipped)' in s for s in statuses(n)),
+          'done-after-skip status')
 
     # ignore list: a joint that never converges doesn't block arrival
     n.traj = Trajectory(name='t2')

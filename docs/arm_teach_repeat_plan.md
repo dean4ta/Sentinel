@@ -112,7 +112,7 @@ idle ──start(file)──► load YAML → validate joint_names
 - `pause` / `stop` / `resume` are services handled by the state machine; no ROS action needed for v1 (playback runs in the node's timer/spin thread, status broadcast on `arm/teach_status`).
 - `pause` = command the *current* joints once (freeze), remember index. `resume` re-sends the goal of the paused index and continues.
 - `stop` = freeze at current joints and return to idle; state cleared.
-- Timeout → freeze at current joints, status `error: waypoint 'grasp' not reached in 10.0 s`.
+- Timeout → log per-joint error and **skip to the next waypoint** (a stalled gripper against the workpiece is a grasp, not a fault). If the last waypoint is skipped, playback ends with `done (last waypoint skipped)`. Per-waypoint `ignore: [joints]` exempts joints from the arrival check entirely (advances as soon as the others settle, without waiting out the timeout).
 
 ### Files
 

@@ -142,8 +142,9 @@ class ArmTeach(Node):
             else:
                 self.goal_hold = 0
                 if time.time() > self.goal_deadline:
-                    # Per-joint error (current - target) in the abort
-                    # message so a stuck joint is named directly.
+                    # Stuck waypoint: report per-joint error (current -
+                    # target) and skip to the next waypoint instead of
+                    # aborting the whole run.
                     parts = []
                     if self._joint_pos and self.goal is not None:
                         for name, target in zip(JOINT_NAMES, self.goal):
@@ -152,12 +153,15 @@ class ArmTeach(Node):
                                          else f'{name} {cur - target:+.3f}')
                     detail = ' (' + ' '.join(parts) + ')' if parts else ''
                     wp_name = self.traj.waypoints[self.play_index].name
-                    self._freeze()
-                    self.goal = None
-                    self.play_state = 'idle'
                     self._set_status(
                         f'error: {wp_name} not reached in '
-                        f'{self.timeout}s{detail}')
+                        f'{self.timeout}s{detail}, skipping to next waypoint')
+                    self.goal = None
+                    self.play_index += 1
+                    if self.play_index >= len(self.traj.waypoints):
+                        self.play_state = 'idle'
+                        self._set_status('done (last waypoint skipped)')
+                    # else stay 'playing'; next tick sends the next goal
         elif self.play_state == 'holding' and time.time() >= self.wait_until:
             self._advance()
 
