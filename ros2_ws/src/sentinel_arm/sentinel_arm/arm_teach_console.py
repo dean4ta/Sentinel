@@ -166,6 +166,12 @@ def main(args=None):
             ch = os.read(sys.stdin.fileno(), 1)
             if ch in (b'\x03', b'\x04'):  # ctrl+c / ctrl+d: quit
                 break
+            if ch == b'\x1b':  # swallow escape sequences (arrow keys etc.)
+                r2, _, _ = select.select([sys.stdin], [], [], 0.02)
+                while r2:
+                    os.read(sys.stdin.fileno(), 1)
+                    r2, _, _ = select.select([sys.stdin], [], [], 0.02)
+                continue
             if ch == b'\r':
                 continue
             c = ch.decode()

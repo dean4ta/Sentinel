@@ -13,8 +13,10 @@
 # Interactive console (preferred):
 #   ros2 run sentinel_arm arm_teach_console
 #
-# spd/acc deliberately low (50/10) for first teach/repeat tests; raise
-# once replay looks good. No home move on launch - the arm stays put.
+# spd 200 / acc 40 = same as the bringup arm defaults (~17 deg/s; spd 50
+# measured ~4 deg/s, too slow for multi-rad moves). Tune per task via
+# launch args, e.g. spd:=100 for delicate work. No home move on launch -
+# the arm stays put.
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
@@ -28,8 +30,8 @@ def generate_launch_description():
         parameters=[{
             'port': '/dev/sentinel_arm',
             'baud': 115200,
-            'spd': 50,
-            'acc': 10,
+            'spd': 200,
+            'acc': 40,
             'read_rate': 10.0,
         }],
     )
@@ -42,7 +44,7 @@ def generate_launch_description():
             'waypoint_dir': '~/arm_waypoints',
             'reach_tol': 0.02,
             'hold_samples': 2,
-            'waypoint_timeout': 10.0,
+            'waypoint_timeout': 30.0,
         }],
     )
     return LaunchDescription([bridge, teach])

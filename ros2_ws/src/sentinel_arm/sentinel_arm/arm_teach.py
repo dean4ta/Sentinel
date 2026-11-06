@@ -40,7 +40,7 @@ class ArmTeach(Node):
         self.declare_parameter('waypoint_dir', '~/arm_waypoints')
         self.declare_parameter('reach_tol', 0.02)        # rad
         self.declare_parameter('hold_samples', 2)        # consecutive polls
-        self.declare_parameter('waypoint_timeout', 10.0)  # s per waypoint
+        self.declare_parameter('waypoint_timeout', 30.0)  # s per waypoint
 
         self.waypoint_dir = os.path.expanduser(
             self.get_parameter('waypoint_dir').value)
