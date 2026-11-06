@@ -24,6 +24,7 @@ setup(
         'console_scripts': [
             'arm_bridge = sentinel_arm.arm_bridge:main',
             'arm_teach = sentinel_arm.arm_teach:main',
+            'arm_teach_console = sentinel_arm.arm_teach_console:main',
         ],
     },
 )

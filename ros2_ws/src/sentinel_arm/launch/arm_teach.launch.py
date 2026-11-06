@@ -10,6 +10,8 @@
 #   ros2 service call arm/waypoint_cmd sentinel_msgs/srv/WaypointCmd "{cmd: 'save', arg: 'demo'}"
 #   ros2 service call arm/playback sentinel_msgs/srv/Playback "{cmd: 'start', filename: 'demo'}"
 # Watch progress: ros2 topic echo arm/teach_status
+# Interactive console (preferred):
+#   ros2 run sentinel_arm arm_teach_console
 #
 # spd/acc deliberately low (50/10) for first teach/repeat tests; raise
 # once replay looks good. No home move on launch - the arm stays put.
