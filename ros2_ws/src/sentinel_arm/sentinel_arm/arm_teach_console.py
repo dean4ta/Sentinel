@@ -53,7 +53,7 @@ class ArmTeachConsole(Node):
         self.joint_pos = {}          # name -> rad, latest feedback
         self.pending_status = []     # strings queued for the terminal
         self.record_count = 0
-        self._clients = {}
+        self._svc_clients = {}
         self.state_sub = self.create_subscription(
             JointState, 'arm/joint_states', self._state_cb, 10)
         self.status_sub = self.create_subscription(
@@ -66,10 +66,10 @@ class ArmTeachConsole(Node):
         self.pending_status.append(msg.data)
 
     def call(self, srv_type, srv_name, request):
-        cli = self._clients.get(srv_name)
+        cli = self._svc_clients.get(srv_name)
         if cli is None:
             cli = self.create_client(srv_type, srv_name)
-            self._clients[srv_name] = cli
+            self._svc_clients[srv_name] = cli
         if not cli.wait_for_service(timeout_sec=3.0):
             return None, f'{srv_name}: service not available'
         fut = cli.call_async(request)
