@@ -21,7 +21,7 @@ ssh sentinel1@ts_sentinel IN="$IN" RATE="$RATE" 'bash -s' <<'REMOTE'
   source /opt/ros/humble/setup.bash
   cd ~/dean/Sentinel
   source ros2_ws/install/setup.bash
-  EKF_CFG=ros2_ws/install/sentinel_drive/share/sentinel_drive/config/ekf.yaml
+  EKF_CFG=ros2_ws/install/sentinel_bringup/share/sentinel_bringup/config/ekf.yaml
   # Kill strays from an interrupted previous run (they'd publish
   # odometry into the new recordings).
   pkill -9 -f 'wheel_odometry|wheel_slip_detector|ekf_nod[e]|ros2 bag' 2>/dev/null
@@ -60,7 +60,7 @@ ssh sentinel1@ts_sentinel IN="$IN" RATE="$RATE" 'bash -s' <<'REMOTE'
   # own odom + consistency topics keep the four pipelines isolated.
   # Consistency topic without a publisher (passes 1/3) = equal weights.
   run_odom() {
-    ros2 run sentinel_drive wheel_odometry --ros-args \
+    ros2 run sentinel_drive_cpp wheel_odometry --ros-args \
       -p use_sim_time:=true \
       -r /wheel_odom:=/pass$1/wheel_odom \
       -r /wheel_consistency:=/pass$1/wheel_consistency \
@@ -92,7 +92,7 @@ ssh sentinel1@ts_sentinel IN="$IN" RATE="$RATE" 'bash -s' <<'REMOTE'
     </dev/null >/dev/null 2>&1 &
 
   # pass 2: slip-compensated odom
-  ros2 run sentinel_drive wheel_slip_detector --ros-args \
+  ros2 run sentinel_drive_cpp wheel_slip_detector --ros-args \
     -p use_sim_time:=true \
     -r /wheel_consistency:=/pass2/wheel_consistency \
     </dev/null >/dev/null 2>&1 &
@@ -107,7 +107,7 @@ ssh sentinel1@ts_sentinel IN="$IN" RATE="$RATE" 'bash -s' <<'REMOTE'
     </dev/null >/dev/null 2>&1 &
 
   # pass 4: slip-compensated odom + EKF
-  ros2 run sentinel_drive wheel_slip_detector --ros-args \
+  ros2 run sentinel_drive_cpp wheel_slip_detector --ros-args \
     -p use_sim_time:=true \
     -r /wheel_consistency:=/pass4/wheel_consistency \
     </dev/null >/dev/null 2>&1 &

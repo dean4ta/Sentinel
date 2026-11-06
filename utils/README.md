@@ -21,7 +21,7 @@ pip install rosbags matplotlib
    ```bash
    cd ~/dean/Sentinel/ros2_ws && source install/setup.bash
    cd ~/dean/Sentinel
-   ros2 launch sentinel_drive step_test.launch.py \
+   ros2 launch sentinel_drive_cpp step_test.launch.py \
        wheel:=FL steps:="0.2,5;0.5,10;1.0,5;0,1;-1.0,10"
    ```
 
@@ -38,7 +38,7 @@ pip install rosbags matplotlib
 
    Output PNG: target rpm vs measured rpm over time, for the one wheel.
 
-3. Adjust `fl_kp/ki/kd` (etc.) in `ros2_ws/src/sentinel_drive/config/drive_params.yaml`, rebuild, rerun.
+3. Adjust `fl_kp/ki/kd` (etc.) in `ros2_ws/src/sentinel_bringup/config/drive_params.yaml`, rebuild, rerun.
 
 ## Scripts
 

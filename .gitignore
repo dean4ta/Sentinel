@@ -17,7 +17,7 @@ __pycache__/
 weekly_report/*
 
 # Tuning test data (rosbags + plots), repo-root data/
-data/
+data*
 plots/
 utils/one_wheel_control_test.sh
 utils/sync_orin.sh
@@ -25,3 +25,6 @@ utils/simple_wheel_control_test.sh
 
 # firmware artifacts
 firmware/pico_motor_controller/build/
+
+# debug code
+firmware/pico_eai_lidar_driver

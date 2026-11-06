@@ -1,0 +1,111 @@
+gamepad_twist:
+  ros__parameters:
+    deadzone: 0.05
+    invert_strafe: false
+    invert_rotate: false
+    rotate_limit: 6.0   # rad/s, full-stick rotate ceiling
+    speed_scale: 0.5
+    # With record:=true the launch overrides exit_on_x to true: any
+    # button press on the controller (sticks do the driving) ends the
+    # recording run.
+    exit_on_x: false
+
+cmd_vel_serial:
+  ros__parameters:
+    serial_port: /dev/sentinel_pico
+    baud: 460800
+
+    # Mecanum IK: ik_wheelbase_m = half-track + half-wheelbase (m),
+    # measure on the robot. ik_roller_swap flips the strafe+rotate
+    # wheel terms if the diagonal roller pairing differs from the
+    # assumed layout (symptom: strafe stick rotates the robot).
+    ik_wheelbase_m: 0.35
+    ik_roller_swap: false
+
+    publish_rate: 100.0    # must be >= Pico encoder report rate (10 ms) or
+                           # faster reports are wasted
+    pid_enabled: true       # PID block enable, independent of feed-forward
+    # Velocity feed-forward, independent of the PID block:
+    #   FF off, PID off -> open loop      FF on,  PID off -> ff only
+    #   FF off, PID on  -> PID            FF on,  PID on  -> ff + PID
+    # Output then passes the per-wheel output limit.
+    feed_forward_enabled: true
+
+    # Per-wheel sections. For each wheel:
+    #   *_output_limit: cap on commanded PWM, PID and open-loop.
+    #   *_kp/ki/kd: PID gains, error in rpm -> normalized PWM.
+    #   *_kS, *_kV: feed-forward u_ff = kS * sign(v_ref) + kV * v_ref
+    #     (v_ref = target / WHEEL_MAX_RPM). kS compensates static
+    #     friction (deadband), kV the velocity gain.
+    #   *_ema_alpha: measured-rpm EMA blend for this wheel.
+
+    # FL (front-left)   ## LOCKED IN - Sept 28th, 2026 ##
+    fl_output_limit: 1.0
+    fl_kp: 0.0005
+    fl_ki: 0.001
+    fl_kd: 0.0
+    fl_kS: 0.10
+    fl_kV: 0.88
+    fl_ema_alpha: 0.8
+
+    # FR (front-right)  ## LOCKED IN - Sept 28th, 2026 ##
+    fr_output_limit: 1.0
+    fr_kp: 0.0005
+    fr_ki: 0.0005
+    fr_kd: 0.0
+    fr_kS: 0.15
+    fr_kV: 0.95
+    fr_ema_alpha: 0.85
+
+    # BL (back-left)    ## LOCKED IN - Sept 28th, 2026 ##
+    bl_output_limit: 1.0
+    bl_kp: 0.0005
+    bl_ki: 0.0005
+    bl_kd: 0.0
+    bl_kS: 0.16
+    bl_kV: 0.97
+    bl_ema_alpha: 0.85
+
+    # BR (back-right)   ## LOCKED IN - Sept 28th, 2026 ##
+    br_output_limit: 1.0
+    br_kp: 0.001
+    br_ki: 0.0005
+    br_kd: 0.0
+    br_kS: 0.14
+    br_kV: 0.96
+    br_ema_alpha: 0.8
+
+wheel_slip_detector:
+  ros__parameters:
+    # Leave-one-out mecanum consistency (see wheel_consistency.py).
+    # Sign-aware: overspeed means larger magnitude along the wheel's
+    # direction of travel. Asymmetric: only overspeed is suspicious,
+    # slower wheels stay trusted.
+    wheel_circumference_m: 0.44    # rpm -> m/s (nominal 140 mm mecanum)
+    residual_threshold_mps: 0.05   # residual below this is ignored
+    residual_scale_mps: 0.15       # residual beyond threshold+this = full suspicion
+    tracking_scale_mps: 0.30       # tracking-error advantage over peer median
+                                   # that fully endorses suspicion (m/s)
+    peer_margin_mps: 0.03          # wheel's speed excess over its own target
+                                   # must beat every peer's excess by this
+                                   # (slip beats target while loaded peers lag)
+    alpha_suspicious: 0.20         # confidence decay rate when suspicious (fast)
+    alpha_recover: 0.05            # confidence recovery rate (slow, hysteresis)
+
+wheel_odometry:
+  ros__parameters:
+    # Confidence-weighted mecanum wheel odometry (see odometry_math.py).
+    # Publishes nav_msgs/Odometry on /wheel_odom. No TF here.
+    wheel_circumference_m: 0.44    # same conversion as wheel_slip_detector
+    lxy_m: 0.362                   # half-track + half-wheelbase. Must match
+                                   # cmd_vel_serial's ik_wheelbase_m (0.35
+                                   # right now) or yaw rates disagree ~3%.
+                                   # TODO: measure on the robot, set both.
+    weight_floor: 0.05             # distrusted wheel keeps this much weight
+    ridge: 0.05                    # prior pull on unobservable directions
+    wheel_noise_mps: 0.1            # per-wheel speed noise, feeds covariance
+    degraded_min_eig: 0.5          # min eig of A^T W A below this = degraded
+    confidence_timeout_s: 0.2      # stale confidences -> equal weights
+    max_dt_s: 0.2                  # longer gaps skip integration
+    odom_frame: odom
+    base_frame: base_link

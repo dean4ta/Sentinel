@@ -14,7 +14,7 @@ source install/setup.bash
 Single package:
 
 ```bash
-colcon build --packages-select sentinel_drive
+colcon build --packages-select sentinel_bringup
 ```
 
 `build/`, `install/`, `log/` are gitignored.
@@ -22,4 +22,5 @@ colcon build --packages-select sentinel_drive
 ## Packages
 
 - [sentinel_msgs](src/sentinel_msgs/README.md) — custom messages
-- [sentinel_drive](src/sentinel_drive/README.md) — gamepad drive control, Pico serial gateway, slip detection, wheel odometry
+- [sentinel_drive_cpp](src/sentinel_drive_cpp/README.md) — C++ drive nodes (cmd_vel_serial, wheel_slip_detector, wheel_odometry)
+- [sentinel_bringup](src/sentinel_bringup/README.md) — gamepad_twist, launch files, shared config
