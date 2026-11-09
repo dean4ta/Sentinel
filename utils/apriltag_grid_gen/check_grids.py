@@ -18,8 +18,11 @@ Verifies:
      square's 4 corners sit within 3 px (0.01 in at 300 dpi) of the
      black-border corners of the 4 surrounding tags (one distinct
      diagonal tag per square corner, no shared pixels).
-  4. No text labels: the only ink on each page is tags and corner
-     squares (every black pixel lies inside a tag or square rect).
+  4. Title label: the PDF filename is drawn centered near the top of
+     each page (orientation cue). Verified by exact pixel match against
+     a freshly rendered label, placement inside the top margin with no
+     tag overlap, and no ink outside the title, tag and square rects
+     (no other text).
   5. JSON sidecars: exist next to each PDF, parse, and agree with the
      actual layout — meta fields, tag ids/sizes/centers and square
      centers/sizes recomputed from generation parameters match the JSON,
@@ -202,11 +205,29 @@ for grid in gen_grids.GRIDS:
           f"{grid['name']}: each square corner touches a diagonal tag "
           "black-border corner within 3 px (0.01 in)")
 
-    # --- 4. No text labels ----------------------------------------------
+    # --- 4. Title label + no other text ----------------------------------
     page = gen_grids.build_page(grid)
     ink = page.point(lambda v: 0 if v == 255 else 255)
     covered = Image.new("L", page.size, 0)
     draw = ImageDraw.Draw(covered)
+    # title: render the expected filename label independently and require
+    # the page's title area to match it pixel for pixel
+    title_text = fname
+    ref_title = Image.new("L", page.size, 255)
+    tbox = gen_grids.draw_title(ref_title, title_text)
+    check(tbox[0] >= 0 and tbox[1] >= 0
+          and tbox[2] <= gen_grids.PAGE_W_PX and tbox[3] <= gen_grids.MARGIN_PX,
+          f"{grid['name']}: title '{title_text}' inside top margin "
+          f"(bbox {tbox})")
+    title_diff = ImageChops.difference(page.crop(tbox), ref_title.crop(tbox))
+    check(title_diff.getextrema()[1] == 0,
+          f"{grid['name']}: title label '{title_text}' rendered at top center")
+    draw.rectangle(tbox, fill=255)
+    t_overlap = any(
+        tbox[0] < t["cx"] + t["px"] // 2 and tbox[2] > t["cx"] - t["px"] // 2
+        and tbox[1] < t["cy"] + t["px"] // 2 and tbox[3] > t["cy"] - t["px"] // 2
+        for t in pl["tags"])
+    check(not t_overlap, f"{grid['name']}: title does not overlap any tag")
     for t in pl["tags"]:
         draw.rectangle([t["cx"] - t["px"] // 2, t["cy"] - t["px"] // 2,
                         t["cx"] - t["px"] // 2 + t["px"] - 1,
@@ -217,8 +238,7 @@ for grid in gen_grids.GRIDS:
                         s["cy"] - s["px"] // 2 + s["px"] - 1], fill=255)
     outside = ImageChops.multiply(ink, ImageChops.invert(covered))
     check(outside.getextrema()[1] == 0,
-          f"{grid['name']}: no ink outside tag and corner-square rects "
-          "(no text labels)")
+          f"{grid['name']}: no ink outside title, tag and corner-square rects")
     # no shared black pixels between square ink and tag ink: a square
     # corner that touches a tag's black-border corner diagonally extends
     # into the tag's white quiet zone (unavoidable for the touch), but

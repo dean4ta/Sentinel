@@ -24,7 +24,9 @@ square's 4 corners touches the black-border corner of the surrounding tag
 diagonally (corner-to-corner distance ~1 px at 300 dpi), without
 overlapping any tag ink. This gives the detector exact corner features.
 
-No text is drawn on the pages; tag IDs and positions live in the JSON
+Each page carries exactly one text label: the PDF filename, centered near
+the top edge (orientation cue — that edge is up when printing). No other
+text is drawn — no ID labels. Tag IDs and positions live in the JSON
 sidecar, with tag centers in inches relative to the top-left corner of
 tag 0 (x right, y down).
 
@@ -43,7 +45,7 @@ import json
 import os
 import sys
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from tag36h11 import BIT_X, BIT_Y, NCODES, TAG36H11_CODES
 
@@ -55,6 +57,9 @@ DPI = 300
 PAGE_W_PX = int(PAGE_W_IN * DPI)  # 2550
 PAGE_H_PX = int(PAGE_H_IN * DPI)  # 3300
 MARGIN_PX = int(MARGIN_IN * DPI)  # 150
+
+TITLE_FONT_PX = 64
+TITLE_Y = 40  # top edge of the title's ink box, in page px
 
 # Portrait grids: rows = larger count along 11 in, cols along 8.5 in.
 # name reads rows x cols. Tag side and corner-square side are derived from
@@ -94,6 +99,29 @@ def render_tag(tag_id, cell_px):
             for dx in range(cell_px):
                 px[x0 + dx, y0 + dy] = v
     return im
+
+
+def grid_base(grid):
+    """File base name for a grid: <name>_tag36h11_ids<first>-<last>."""
+    rows, cols = grid["rows"], grid["cols"]
+    ids = range(grid["id_start"], grid["id_start"] + rows * cols)
+    return f"{grid['name']}_tag36h11_ids{ids[0]}-{ids[-1]}"
+
+
+def draw_title(page, text):
+    """Draw text (the PDF filename) centered near the top of the page.
+
+    Returns the title ink bounding box (left, top, right, bottom) so the
+    checker can verify placement and pixel content.
+    """
+    font = ImageFont.load_default(size=TITLE_FONT_PX)
+    draw = ImageDraw.Draw(page)
+    l, t, r, b = draw.textbbox((0, 0), text, font=font)
+    w, h = r - l, b - t
+    x = (PAGE_W_PX - w) // 2 - l
+    y = TITLE_Y - t
+    draw.text((x, y), text, fill=0, font=font)
+    return (x + l, y + t, x + r, y + b)
 
 
 def placements(grid):
@@ -167,10 +195,11 @@ def placements(grid):
 
 
 def build_page(grid):
-    """Build one full letter page (L mode): tags + corner squares, no text."""
+    """Build one full letter page (L mode): title label, tags, corner squares."""
     pl = placements(grid)
     page = Image.new("L", (PAGE_W_PX, PAGE_H_PX), 255)
     draw = ImageDraw.Draw(page)
+    draw_title(page, grid_base(grid) + ".pdf")
     for t in pl["tags"]:
         page.paste(render_tag(t["id"], t["px"] // 10),
                    (t["cx"] - t["px"] // 2, t["cy"] - t["px"] // 2))
@@ -216,7 +245,7 @@ def main(argv=None):
         assert all(0 <= i < NCODES for i in ids)
         pl = placements(grid)
         page = build_page(grid)
-        base = f"{grid['name']}_tag36h11_ids{ids[0]}-{ids[-1]}"
+        base = grid_base(grid)
         pdf_path = os.path.join(out_dir, base + ".pdf")
         # fixed PDF dates so regeneration is byte-reproducible
         page.save(pdf_path, "PDF", resolution=float(DPI),

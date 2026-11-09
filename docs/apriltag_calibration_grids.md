@@ -26,9 +26,11 @@ tag cells), so each of the square's 4 corners touches the black-border
 corner of the surrounding tag diagonally — corner-to-corner distance about
 1 px (0.003 in) at 300 dpi, never overlapping any black tag pixel. The
 square corner extends into the tag's white quiet-zone corner, which is
-unavoidable for the diagonal touch and harmless for detection. There is no
-text on the pages — no ID labels. Tag identities and positions live in the
-JSON sidecar next to each PDF (`grid_*_ids*.json`).
+unavoidable for the diagonal touch and harmless for detection. The only
+text on each page is a title label: the PDF filename, centered near the
+top edge (that edge is up when printing). There are no ID labels on the
+tags. Tag identities and positions live in the JSON sidecar next to each
+PDF (`grid_*_ids*.json`).
 
 All IDs are unique within and across grids. Every tag is rendered
 pixel-identically to the official AprilRobotics/apriltag-imgs `tag36h11`
@@ -56,8 +58,10 @@ bindings) recognizes them.
 2. **Scale: 100% / "Actual size".** Do NOT use "fit to page" — the tag
    dimensions below assume exact 1:1 printing.
 3. All content sits inside a 0.5 in margin, so ordinary printers are fine.
-4. The pages carry no labels: identify tags via the JSON sidecar (tag 0 is
-   the top-left tag on each page, IDs increase left-to-right, top-to-bottom).
+4. The filename is printed as a title near the top of each page — that
+   edge is up. There are no ID labels on the tags: identify tags via the
+   JSON sidecar (tag 0 is the top-left tag on each page, IDs increase
+   left-to-right, top-to-bottom).
 5. Optional: verify with a ruler that a tag side on the 5x4 grid measures
    1.8667 in (the 3x2 grid: 3.3333 in).
 
@@ -104,10 +108,12 @@ uv run --with pillow python3 utils/apriltag_grid_gen/check_grids.py
 Verifies page size (US Letter MediaBox), portrait orientation, tag counts,
 ID validity and uniqueness, corner-square count/placement, corner-touching
 (every square corner within 0.01 in of the diagonal tag's black-border
-corner, no shared black pixels between square and tag ink), absence of text
-(no ink outside tag and square rects), JSON agreement with the layout,
-content inside the 0.5 in margin, byte-identical regeneration (PDFs and
-JSONs), tag bitmap structure (quiet zone, border ring, 4 distinct
+corner, no shared black pixels between square and tag ink), the title label
+(filename at top center: exact pixel match against a fresh render, inside
+the top margin, no tag overlap) and no ink outside title/tag/square rects,
+JSON agreement with the layout, content inside the 0.5 in margin,
+byte-identical regeneration (PDFs and JSONs), tag bitmap structure (quiet
+zone, border ring, 4 distinct
 rotations), and the fit-math minimums. Prints `RESULT: PASS (all checks)`.
 
 ## Out of scope (later tasks)
