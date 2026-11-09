@@ -7,20 +7,28 @@ intrinsic calibration and webcam/arm hand-eye calibration.
 
 ## Files
 
-| File (in `generated/`) | Grid (rows x cols, portrait) | Tags | Tag IDs | Tag side |
-|---|---|---|---|---|
-| `grid_3x2_tag36h11_ids0-5.pdf` | 3 x 2 | 6 | 0-5 | 2.70 in |
-| `grid_4x3_tag36h11_ids6-17.pdf` | 4 x 3 | 12 | 6-17 | 1.90 in |
-| `grid_5x4_tag36h11_ids18-37.pdf` | 5 x 4 | 20 | 18-37 | 1.40 in |
+| File (in `generated/`) | Grid (rows x cols, portrait) | Tags | Tag IDs | Tag side | Corner square side |
+|---|---|---|---|---|---|
+| `grid_3x2_tag36h11_ids0-5.pdf` | 3 x 2 | 6 | 0-5 | 3.3333 in | 0.6667 in |
+| `grid_4x3_tag36h11_ids6-17.pdf` | 4 x 3 | 12 | 6-17 | 2.5000 in | 0.5000 in |
+| `grid_5x4_tag36h11_ids18-37.pdf` | 5 x 4 | 20 | 18-37 | 1.8667 in | 0.3733 in |
 
 Portrait orientation: rows run along the 11 in page dimension, columns along
-8.5 in. The larger grid count always aligns with the 11 in side.
+8.5 in. The larger grid count always aligns with the 11 in side. Tag centers
+form a square grid: the same center-to-center spacing in x and y (the largest
+that fits the 0.5 in margin box), so tags are as large as feasible.
 
-Each page contains ONLY the tags and one black corner square (0.25 in side)
-centered on every interior grid intersection (where 4 adjacent tags meet):
-2 squares on the 3x2 grid, 6 on the 4x3, 12 on the 5x4. There is no text on
-the pages — no ID labels. Tag identities and positions live in the JSON
-sidecar next to each PDF (`grid_*_ids*.json`).
+Each page contains ONLY the tags and one black corner square centered on
+every interior grid intersection (where 4 adjacent tags meet): 2 squares on
+the 3x2 grid, 6 on the 4x3, 12 on the 5x4. Each square's side equals the gap
+between the black borders of two adjacent tags along an axis (spacing - 8
+tag cells), so each of the square's 4 corners touches the black-border
+corner of the surrounding tag diagonally — corner-to-corner distance about
+1 px (0.003 in) at 300 dpi, never overlapping any black tag pixel. The
+square corner extends into the tag's white quiet-zone corner, which is
+unavoidable for the diagonal touch and harmless for detection. There is no
+text on the pages — no ID labels. Tag identities and positions live in the
+JSON sidecar next to each PDF (`grid_*_ids*.json`).
 
 All IDs are unique within and across grids. Every tag is rendered
 pixel-identically to the official AprilRobotics/apriltag-imgs `tag36h11`
@@ -51,7 +59,7 @@ bindings) recognizes them.
 4. The pages carry no labels: identify tags via the JSON sidecar (tag 0 is
    the top-left tag on each page, IDs increase left-to-right, top-to-bottom).
 5. Optional: verify with a ruler that a tag side on the 5x4 grid measures
-   1.40 in (the 3x2 grid: 2.70 in).
+   1.8667 in (the 3x2 grid: 3.3333 in).
 
 ## Fit math
 
@@ -60,14 +68,14 @@ Logitech C270-class webcams). Pixels per inch at distance d:
 
     px/in = 1280 / (2 * d * tan(30 deg))
 
-| Distance | px/in | 3x2 (2.70 in) | 4x3 (1.90 in) | 5x4 (1.40 in) |
+| Distance | px/in | 3x2 (3.3333 in) | 4x3 (2.5000 in) | 5x4 (1.8667 in) |
 |---|---|---|---|---|
-| 2.0 ft | 46.2 | 124.7 px | 87.8 px | 64.7 px |
-| 2.5 ft | 37.0 | 99.8 px | 70.2 px | 51.7 px |
+| 2.0 ft | 46.2 | 154.0 px | 115.5 px | 86.2 px |
+| 2.5 ft | 37.0 | 123.2 px | 92.4 px | 69.0 px |
 
 Minimum requirement is >= 20 px tag side at 2.5 ft; the smallest grid
-(5x4) gives 51.7 px, a ~2.6x margin. Even at a conservative 50 deg HFOV
-(px/in 45.7 at 2.5 ft) the 5x4 tags are 64 px. Note the camera looks down
+(5x4) gives 69.0 px, a ~3.5x margin. Even at a conservative 50 deg HFOV
+(px/in 45.7 at 2.5 ft) the 5x4 tags are 85 px. Note the camera looks down
 at the ground at an angle, so effective pixels per inch drop with
 foreshortening; the larger grids (3x2, 4x3) are the ones to use at the
 2.5 ft range if detection is marginal.
@@ -94,10 +102,12 @@ uv run --with pillow python3 utils/apriltag_grid_gen/check_grids.py
 ```
 
 Verifies page size (US Letter MediaBox), portrait orientation, tag counts,
-ID validity and uniqueness, corner-square count/placement/non-overlap,
-absence of text (no ink outside tag and square rects), JSON agreement with
-the layout, content inside the 0.5 in margin, byte-identical regeneration
-(PDFs and JSONs), tag bitmap structure (quiet zone, border ring, 4 distinct
+ID validity and uniqueness, corner-square count/placement, corner-touching
+(every square corner within 0.01 in of the diagonal tag's black-border
+corner, no shared black pixels between square and tag ink), absence of text
+(no ink outside tag and square rects), JSON agreement with the layout,
+content inside the 0.5 in margin, byte-identical regeneration (PDFs and
+JSONs), tag bitmap structure (quiet zone, border ring, 4 distinct
 rotations), and the fit-math minimums. Prints `RESULT: PASS (all checks)`.
 
 ## Out of scope (later tasks)

@@ -13,8 +13,11 @@ Verifies:
      5x4 -> 20), IDs valid (0..586) and unique per grid and across grids.
   3. Corner squares: count (2 / 6 / 12), each centered on an interior
      grid intersection (midpoint of 4 adjacent tag centers, recomputed
-     from generation parameters), fully inside the 0.5 in margin, and
-     clearly separated from tags (no overlap with any tag rect).
+     from generation parameters), fully inside the 0.5 in margin, no
+     shared black pixels with any tag ink, and corner-touching: each
+     square's 4 corners sit within 3 px (0.01 in at 300 dpi) of the
+     black-border corners of the 4 surrounding tags (one distinct
+     diagonal tag per square corner, no shared pixels).
   4. No text labels: the only ink on each page is tags and corner
      squares (every black pixel lies inside a tag or square rect).
   5. JSON sidecars: exist next to each PDF, parse, and agree with the
@@ -125,19 +128,37 @@ for grid in gen_grids.GRIDS:
     check(len(pl["squares"]) == expected_squares,
           f"{grid['name']}: {expected_squares} corner squares "
           f"(got {len(pl['squares'])})")
-    # recompute interior intersections independently
+    # recompute interior intersections independently (square-grid layout)
     usable_w = gen_grids.PAGE_W_PX - 2 * gen_grids.MARGIN_PX
     usable_h = gen_grids.PAGE_H_PX - 2 * gen_grids.MARGIN_PX
-    x_centers = [gen_grids.MARGIN_PX + round((i + 0.5) * usable_w / cols)
-                 for i in range(cols)]
-    y_centers = [gen_grids.MARGIN_PX + round((j + 0.5) * usable_h / rows)
-                 for j in range(rows)]
-    want_sq = {(round((x_centers[i] + x_centers[i + 1]) / 2),
-                round((y_centers[j] + y_centers[j + 1]) / 2))
+    s = min(usable_w // cols, usable_h // rows)
+    s = (s // 10) * 10
+    cell = s // 10
+    tag_px = 10 * cell
+    q = s - 8 * cell  # square side = gap between adjacent tags' black borders
+    block_w = (cols - 1) * s + tag_px
+    block_h = (rows - 1) * s + tag_px
+    x0 = gen_grids.MARGIN_PX + (usable_w - block_w) // 2
+    y0 = gen_grids.MARGIN_PX + (usable_h - block_h) // 2
+    x_centers = [x0 + tag_px // 2 + i * s for i in range(cols)]
+    y_centers = [y0 + tag_px // 2 + j * s for j in range(rows)]
+    tags_match = all(
+        pl["tags"][j * cols + i]["cx"] == x_centers[i]
+        and pl["tags"][j * cols + i]["cy"] == y_centers[j]
+        and pl["tags"][j * cols + i]["px"] == tag_px
+        for j in range(rows) for i in range(cols))
+    check(tags_match,
+          f"{grid['name']}: tag centers/sizes match recomputed square grid "
+          f"(spacing {s} px, tag side {tag_px} px)")
+    want_sq = {((x_centers[i] + x_centers[i + 1]) // 2,
+                (y_centers[j] + y_centers[j + 1]) // 2)
                for j in range(rows - 1) for i in range(cols - 1)}
     got_sq = {(s["cx"], s["cy"]) for s in pl["squares"]}
     check(got_sq == want_sq,
           f"{grid['name']}: squares centered on interior grid intersections")
+    check(all(sq["px"] == q for sq in pl["squares"]),
+          f"{grid['name']}: square side = black-border gap ({q} px "
+          f"= {q / gen_grids.DPI:.4f} in)")
     sq_in_margin = all(
         s["cx"] - s["px"] // 2 >= gen_grids.MARGIN_PX
         and s["cx"] - s["px"] // 2 + s["px"] - 1
@@ -147,14 +168,39 @@ for grid in gen_grids.GRIDS:
         < gen_grids.PAGE_H_PX - gen_grids.MARGIN_PX
         for s in pl["squares"])
     check(sq_in_margin, f"{grid['name']}: all squares inside 0.5 in margin")
-    # squares must not overlap any tag
-    overlap = False
-    for s in pl["squares"]:
-        for t in pl["tags"]:
-            if (abs(s["cx"] - t["cx"]) < (s["px"] + t["px"]) / 2
-                    and abs(s["cy"] - t["cy"]) < (s["px"] + t["px"]) / 2):
-                overlap = True
-    check(not overlap, f"{grid['name']}: squares do not overlap any tag")
+
+    # --- corner touch: every square corner sits within 3 px (0.01 in at
+    # 300 dpi) of a black-border corner of one of the 4 diagonal tags,
+    # with no shared pixels (touching, not overlapping)
+    def tag_black_corners(t):
+        c = t["px"] // 10
+        tx = t["cx"] - t["px"] // 2
+        ty = t["cy"] - t["px"] // 2
+        return [(tx + c, ty + c), (tx + 9 * c - 1, ty + c),
+                (tx + c, ty + 9 * c - 1), (tx + 9 * c - 1, ty + 9 * c - 1)]
+
+    corners = [(t["id"], b) for t in pl["tags"] for b in tag_black_corners(t)]
+    touch_ok = True
+    for sq in pl["squares"]:
+        h = sq["px"] // 2
+        sq_corners = [(sq["cx"] - h, sq["cy"] - h),
+                      (sq["cx"] + h - 1, sq["cy"] - h),
+                      (sq["cx"] - h, sq["cy"] + h - 1),
+                      (sq["cx"] + h - 1, sq["cy"] + h - 1)]
+        nearest = []
+        for (x, y) in sq_corners:
+            tid, (bx, by), d = min(
+                ((tid, (bx, by), math.hypot(x - bx, y - by))
+                 for tid, (bx, by) in corners),
+                key=lambda p: p[2])
+            nearest.append(tid)
+            if not 1 <= d <= 3:
+                touch_ok = False
+        if len(set(nearest)) != 4:  # one distinct diagonal tag per corner
+            touch_ok = False
+    check(touch_ok,
+          f"{grid['name']}: each square corner touches a diagonal tag "
+          "black-border corner within 3 px (0.01 in)")
 
     # --- 4. No text labels ----------------------------------------------
     page = gen_grids.build_page(grid)
@@ -173,6 +219,23 @@ for grid in gen_grids.GRIDS:
     check(outside.getextrema()[1] == 0,
           f"{grid['name']}: no ink outside tag and corner-square rects "
           "(no text labels)")
+    # no shared black pixels between square ink and tag ink: a square
+    # corner that touches a tag's black-border corner diagonally extends
+    # into the tag's white quiet zone (unavoidable for the touch), but
+    # must never cover any black tag pixel
+    tag_ink = Image.new("L", page.size, 255)
+    for t in pl["tags"]:
+        tag_ink.paste(gen_grids.render_tag(t["id"], t["px"] // 10),
+                      (t["cx"] - t["px"] // 2, t["cy"] - t["px"] // 2))
+    tag_ink = tag_ink.point(lambda v: 0 if v == 255 else 255)
+    sq_ink = Image.new("L", page.size, 0)
+    sq_draw = ImageDraw.Draw(sq_ink)
+    for s in pl["squares"]:
+        sq_draw.rectangle([s["cx"] - s["px"] // 2, s["cy"] - s["px"] // 2,
+                           s["cx"] - s["px"] // 2 + s["px"] - 1,
+                           s["cy"] - s["px"] // 2 + s["px"] - 1], fill=255)
+    check(ImageChops.multiply(tag_ink, sq_ink).getextrema()[1] == 0,
+          f"{grid['name']}: no shared black pixels between square and tag ink")
 
     # --- 5. JSON sidecar agrees with layout ------------------------------
     ok = os.path.isfile(json_path)
@@ -202,8 +265,8 @@ for grid in gen_grids.GRIDS:
             check(len(tags) == rows * cols, f"{jname}: tags list has {rows*cols} entries")
             check([t["id"] for t in tags] == ids,
                   f"{jname}: tag ids match {ids[0]}-{ids[-1]}")
-            check(all(t["size_in"] == grid["tag_in"] for t in tags),
-                  f"{jname}: tag size_in = {grid['tag_in']:.2f}")
+            check(all(t["size_in"] == pl["tag_in"] for t in tags),
+                  f"{jname}: tag size_in = {pl['tag_in']:.4f}")
             centers_match = all(
                 t["center"] == ref["center"]
                 for t, ref in zip(tags, pl["tags_in"]))
@@ -267,12 +330,14 @@ px_per_in = {
 }
 print(f"\n  Fit math (720p webcam, {CAM_W_PX} px wide, assumed HFOV {HFOV_DEG} deg):")
 print(f"  px/in: 2 ft -> {px_per_in[2.0]:.1f}, 2.5 ft -> {px_per_in[2.5]:.1f}")
-print(f"  {'grid':<9} {'tag in':>7} {'px @2ft':>8} {'px @2.5ft':>9}")
+print(f"  {'grid':<9} {'tag in':>7} {'sq in':>6} {'px @2ft':>8} {'px @2.5ft':>9}")
 for grid in gen_grids.GRIDS:
-    side_in = grid["tag_in"]
+    pl = gen_grids.placements(grid)
+    side_in = pl["tag_in"]
+    sq_in = pl["square_px"] / gen_grids.DPI
     p2 = side_in * px_per_in[2.0]
     p25 = side_in * px_per_in[2.5]
-    print(f"  {grid['name']:<9} {side_in:>7.2f} {p2:>8.1f} {p25:>9.1f}")
+    print(f"  {grid['name']:<9} {side_in:>7.4f} {sq_in:>6.4f} {p2:>8.1f} {p25:>9.1f}")
     check(p25 >= MIN_TAG_PX,
           f"{grid['name']}: tag side {p25:.1f} px at 2.5 ft >= {MIN_TAG_PX} px")
 
