@@ -223,6 +223,7 @@ def grid_json(grid, pl):
             "origin": "top-left corner of tag 0",
             "x_axis": "right",
             "y_axis": "down",
+            "size_in_includes_quiet_zone": True,
         },
         "tags": pl["tags_in"],
         "squares": pl["squares_in"],

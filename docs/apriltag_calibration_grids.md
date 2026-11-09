@@ -44,11 +44,13 @@ bindings) recognizes them.
 
 - `meta`: `{family: "tag36h11", rows, cols, page_size_in: [8.5, 11.0],
   margin_in: 0.5, units: "inches", origin: "top-left corner of tag 0",
-  x_axis: "right", y_axis: "down"}`
+  x_axis: "right", y_axis: "down", size_in_includes_quiet_zone: true}`
 - `tags`: per tag (row-major, tag 0 = top-left):
   `{id, size_in, center: {x_in, y_in}}` — tag center in inches relative to
   the origin (tag 0's top-left corner), x right, y down. Tag 0's center is
-  therefore `(size_in/2, size_in/2)`.
+  therefore `(size_in/2, size_in/2)`. `size_in` is the full 10-cell tag
+  extent **including** the white quiet zone (hence the meta flag); the
+  measurable black border is 0.8x that.
 - `squares`: per corner square:
   `{center: {x_in, y_in}, size_in}` — same coordinate frame.
 
@@ -62,8 +64,12 @@ bindings) recognizes them.
    edge is up. There are no ID labels on the tags: identify tags via the
    JSON sidecar (tag 0 is the top-left tag on each page, IDs increase
    left-to-right, top-to-bottom).
-5. Optional: verify with a ruler that a tag side on the 5x4 grid measures
-   1.8667 in (the 3x2 grid: 3.3333 in).
+5. Optional: verify with a ruler that a tag's black border (the outer
+   black square, the measurable part) measures 1.4933 in on a side on the
+   5x4 grid (4x3 grid: 2.0000 in; 3x2 grid: 2.6667 in) — the black border
+   is 0.8x the full tag extent. The full tag extent including the white
+   quiet zone is 3.3333 / 2.5000 / 1.8667 in for the 3x2 / 4x3 / 5x4
+   grids; that full extent is what the JSON `size_in` fields report.
 
 ## Fit math
 
