@@ -45,6 +45,7 @@ Checks, from the committed PDF bytes and independently rasterized pixels:
     px at 2 ft / 2.5 ft for a 1280 px 720p webcam, HFOV 60 deg (stated
     assumption); require >= 20 px at 2.5 ft.
 13. Hygiene: no third-party files committed.
+14. Docs: ruler-check black-border numbers (0.8 x full tag extent).
 
 Prints [PASS]/[FAIL] per check and a final RESULT line; exits 1 on failure.
 """
@@ -637,7 +638,8 @@ def check_json(meas, decoded):
                 and meta.get("units") == "inches"
                 and meta.get("origin") == "top-left corner of tag 0"
                 and meta.get("x_axis") == "right"
-                and meta.get("y_axis") == "down")
+                and meta.get("y_axis") == "down"
+                and meta.get("size_in_includes_quiet_zone") is True)
         check(m_ok, f"{fname}.json meta fields correct (got {meta})")
         g = meas[grid["name"]]
         tags = sorted(g["tags"], key=lambda b: (b[2], b[0]))
@@ -756,6 +758,21 @@ def check_fit_math(meas):
               f"{grid['tag_in']} in")
 
 
+def check_docs():
+    print("== 14. Docs ruler-check numbers (black border = 0.8 x full extent) ==")
+    doc = os.path.join(REPO_ROOT, "docs", "apriltag_calibration_grids.md")
+    ok = os.path.isfile(doc)
+    check(ok, "docs/apriltag_calibration_grids.md exists")
+    if not ok:
+        return
+    text = open(doc).read()
+    for grid in GRIDS:
+        border_in = round(grid["ann_px"] / 300, 4)  # exact: 8 cells at 300 dpi
+        check(str(border_in) in text,
+              f"docs ruler check gives black-border side {border_in} in for "
+              f"{grid['name']} (0.8 x {grid['tag_in']})")
+
+
 def check_hygiene():
     print("== 13. Repo hygiene ==")
     proc = subprocess.run(["git", "-C", REPO_ROOT, "ls-files"],
@@ -800,6 +817,7 @@ def main():
     check_reproducibility()
     check_fit_math(meas)
     check_hygiene()
+    check_docs()
 
     print()
     if failures:
