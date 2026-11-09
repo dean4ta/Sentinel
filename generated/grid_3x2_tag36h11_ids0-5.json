@@ -1,0 +1,82 @@
+{
+  "meta": {
+    "family": "tag36h11",
+    "rows": 3,
+    "cols": 2,
+    "page_size_in": [
+      8.5,
+      11.0
+    ],
+    "margin_in": 0.5,
+    "units": "inches",
+    "origin": "top-left corner of tag 0",
+    "x_axis": "right",
+    "y_axis": "down"
+  },
+  "tags": [
+    {
+      "id": 0,
+      "size_in": 2.7,
+      "center": {
+        "x_in": 1.35,
+        "y_in": 1.35
+      }
+    },
+    {
+      "id": 1,
+      "size_in": 2.7,
+      "center": {
+        "x_in": 5.1033,
+        "y_in": 1.35
+      }
+    },
+    {
+      "id": 2,
+      "size_in": 2.7,
+      "center": {
+        "x_in": 1.35,
+        "y_in": 4.6833
+      }
+    },
+    {
+      "id": 3,
+      "size_in": 2.7,
+      "center": {
+        "x_in": 5.1033,
+        "y_in": 4.6833
+      }
+    },
+    {
+      "id": 4,
+      "size_in": 2.7,
+      "center": {
+        "x_in": 1.35,
+        "y_in": 8.0167
+      }
+    },
+    {
+      "id": 5,
+      "size_in": 2.7,
+      "center": {
+        "x_in": 5.1033,
+        "y_in": 8.0167
+      }
+    }
+  ],
+  "squares": [
+    {
+      "center": {
+        "x_in": 3.2267,
+        "y_in": 3.0167
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 3.2267,
+        "y_in": 6.35
+      },
+      "size_in": 0.25
+    }
+  ]
+}

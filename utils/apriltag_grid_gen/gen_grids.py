@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 """Generate print-ready US Letter PDFs of tag36h11 AprilTag calibration grids.
 
-Pure python (Pillow only), no ROS. Regenerates all three PDFs reproducibly:
+Pure python (Pillow only), no ROS. Regenerates all PDFs and their JSON
+sidecars reproducibly:
 
     uv run --with pillow python3 utils/apriltag_grid_gen/gen_grids.py [--out DIR]
 
 Output files (default DIR = <repo root>/generated):
-    grid_3x2_tag36h11_ids0-5.pdf   6 tags, ids 0-5,   tag side 2.20 in
-    grid_4x3_tag36h11_ids6-17.pdf  12 tags, ids 6-17, tag side 1.70 in
-    grid_5x4_tag36h11_ids18-37.pdf 20 tags, ids 18-37, tag side 1.40 in
+    grid_3x2_tag36h11_ids0-5.pdf   (+ .json)  3 rows x 2 cols,  6 tags, ids 0-5,   tag side 2.70 in
+    grid_4x3_tag36h11_ids6-17.pdf  (+ .json)  4 rows x 3 cols, 12 tags, ids 6-17,  tag side 1.90 in
+    grid_5x4_tag36h11_ids18-37.pdf (+ .json)  5 rows x 4 cols, 20 tags, ids 18-37, tag side 1.40 in
 
-Each page is US Letter (8.5 x 11 in) rendered at 300 dpi (2550 x 3300 px) and
-exported as PDF at 300 dpi resolution, so a 100%-scale print reproduces the
-exact inch dimensions. All content (tags, labels, title) sits inside a 0.5 in
+Layout (portrait): rows run along the 11 in page dimension, cols along
+8.5 in. Pages contain ONLY the tags and one black corner square at each
+interior grid intersection (where 4 adjacent tags meet); no text is
+drawn, so nothing but tags and squares is printed. Tag IDs and positions
+are recorded in the JSON sidecar, with tag centers given in inches
+relative to the top-left corner of tag 0 (x right, y down).
+
+Each page is US Letter (8.5 x 11 in) rendered at 300 dpi (2550 x 3300 px)
+and exported as PDF at 300 dpi resolution, so a 100%-scale print
+reproduces the exact inch dimensions. All content sits inside a 0.5 in
 margin so every ordinary printer can print it.
 
 Tag rendering convention matches AprilRobotics/apriltag-imgs (verified
@@ -21,10 +29,11 @@ pixel-identical for all 587 tags): 10x10 cells = 1-cell white quiet zone,
 """
 
 import argparse
+import json
 import os
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from tag36h11 import BIT_X, BIT_Y, NCODES, TAG36H11_CODES
 
@@ -37,21 +46,16 @@ PAGE_W_PX = int(PAGE_W_IN * DPI)  # 2550
 PAGE_H_PX = int(PAGE_H_IN * DPI)  # 3300
 MARGIN_PX = int(MARGIN_IN * DPI)  # 150
 
-LABEL_H_IN = 0.35
-LABEL_GAP_IN = 0.10
-ROW_GAP_IN = 0.60
+SQUARE_IN = 0.25  # black corner squares at interior intersections
 
-# cols x rows, tag side length in inches, first tag id (ids are consecutive)
+# Portrait grids: rows = larger count along 11 in, cols along 8.5 in.
+# name reads rows x cols. Tag side in inches; ids consecutive, row-major
+# starting at the top-left tag (tag 0).
 GRIDS = [
-    {"name": "grid_3x2", "cols": 3, "rows": 2, "tag_in": 2.20, "id_start": 0},
-    {"name": "grid_4x3", "cols": 4, "rows": 3, "tag_in": 1.70, "id_start": 6},
-    {"name": "grid_5x4", "cols": 5, "rows": 4, "tag_in": 1.40, "id_start": 18},
+    {"name": "grid_3x2", "rows": 3, "cols": 2, "tag_in": 2.70, "id_start": 0},
+    {"name": "grid_4x3", "rows": 4, "cols": 3, "tag_in": 1.90, "id_start": 6},
+    {"name": "grid_5x4", "rows": 5, "cols": 4, "tag_in": 1.40, "id_start": 18},
 ]
-
-
-def _font(size_px):
-    """Default font at a requested size (Pillow >= 10.1)."""
-    return ImageFont.load_default(size=size_px)
 
 
 def render_tag(tag_id, cell_px):
@@ -83,63 +87,96 @@ def render_tag(tag_id, cell_px):
     return im
 
 
-def build_page(grid):
-    """Build one full letter page (L mode) for a grid spec."""
-    page = Image.new("L", (PAGE_W_PX, PAGE_H_PX), 255)
-    draw = ImageDraw.Draw(page)
+def placements(grid):
+    """Compute all tag and corner-square placements for a grid.
 
+    Returns a dict with pixel placements ("tags", "squares") and the same
+    placements in inches relative to the top-left corner of tag 0
+    ("tags_in", "squares_in", rounded to 4 decimals). Tags are row-major,
+    tag 0 = top-left. Corner squares sit centered on the interior grid
+    intersections (midpoints between the centers of 4 adjacent tags).
+    """
     cols, rows = grid["cols"], grid["rows"]
     tag_in = grid["tag_in"]
-    id_start = grid["id_start"]
-    ids = list(range(id_start, id_start + cols * rows))
-
     cell_px = round(tag_in * DPI / 10)
     tag_px = 10 * cell_px
-    label_h_px = round(LABEL_H_IN * DPI)
-    label_gap_px = round(LABEL_GAP_IN * DPI)
-    row_gap_px = round(ROW_GAP_IN * DPI)
+    sq_px = round(SQUARE_IN * DPI)
 
-    title_font = _font(56)
-    note_font = _font(30)
-    label_font = _font(44)
+    usable_w = PAGE_W_PX - 2 * MARGIN_PX
+    usable_h = PAGE_H_PX - 2 * MARGIN_PX
+    x_centers = [MARGIN_PX + round((i + 0.5) * usable_w / cols)
+                 for i in range(cols)]
+    y_centers = [MARGIN_PX + round((j + 0.5) * usable_h / rows)
+                 for j in range(rows)]
 
-    # Title block, top of page (inside the 0.5 in margin)
-    draw.text((MARGIN_PX, MARGIN_PX),
-              f"AprilTag calibration grid - {cols}x{rows} tag36h11",
-              font=title_font, fill=0)
-    draw.text((MARGIN_PX, MARGIN_PX + 72),
-              f"IDs {ids[0]}-{ids[-1]}  |  tag side {tag_in:.2f} in  |  "
-              "print at 100% scale (no fit-to-page), US Letter",
-              font=note_font, fill=0)
+    tags = []
+    for j in range(rows):
+        for i in range(cols):
+            tags.append({
+                "id": grid["id_start"] + j * cols + i,
+                "cx": x_centers[i], "cy": y_centers[j], "px": tag_px,
+            })
+    squares = []
+    for j in range(rows - 1):
+        for i in range(cols - 1):
+            squares.append({
+                "cx": round((x_centers[i] + x_centers[i + 1]) / 2),
+                "cy": round((y_centers[j] + y_centers[j + 1]) / 2),
+                "px": sq_px,
+            })
 
-    # Layout: centers evenly spread across the usable width
-    usable_x0 = MARGIN_PX
-    usable_x1 = PAGE_W_PX - MARGIN_PX
-    usable_w = usable_x1 - usable_x0
-    x_centers = [usable_x0 + round((i + 0.5) * usable_w / cols) for i in range(cols)]
+    origin_x = tags[0]["cx"] - tags[0]["px"] // 2
+    origin_y = tags[0]["cy"] - tags[0]["px"] // 2
+    tags_in = [
+        {"id": t["id"], "size_in": tag_in,
+         "center": {"x_in": round((t["cx"] - origin_x) / DPI, 4),
+                    "y_in": round((t["cy"] - origin_y) / DPI, 4)}}
+        for t in tags
+    ]
+    squares_in = [
+        {"center": {"x_in": round((s["cx"] - origin_x) / DPI, 4),
+                    "y_in": round((s["cy"] - origin_y) / DPI, 4)},
+         "size_in": SQUARE_IN}
+        for s in squares
+    ]
+    return {"cols": cols, "rows": rows, "tag_in": tag_in,
+            "tags": tags, "squares": squares,
+            "tags_in": tags_in, "squares_in": squares_in,
+            "origin_px": (origin_x, origin_y)}
 
-    # Rows centered in the space below the title block
-    content_y0 = MARGIN_PX + 72 + 56 + 30
-    content_y1 = PAGE_H_PX - MARGIN_PX
-    block_h = tag_px + label_gap_px + label_h_px
-    total_h = rows * block_h + (rows - 1) * row_gap_px
-    y_start = content_y0 + (content_y1 - content_y0 - total_h) // 2
 
-    for r in range(rows):
-        row_top = y_start + r * (block_h + row_gap_px)
-        for c in range(cols):
-            tag_id = ids[r * cols + c]
-            tag_im = render_tag(tag_id, cell_px)
-            left = x_centers[c] - tag_px // 2
-            top = row_top
-            page.paste(tag_im, (left, top))
-            label = f"36h11 #{tag_id}"
-            bbox = draw.textbbox((0, 0), label, font=label_font)
-            tw = bbox[2] - bbox[0]
-            draw.text((x_centers[c] - tw // 2, row_top + tag_px + label_gap_px),
-                      label, font=label_font, fill=0)
-
+def build_page(grid):
+    """Build one full letter page (L mode): tags + corner squares, no text."""
+    pl = placements(grid)
+    page = Image.new("L", (PAGE_W_PX, PAGE_H_PX), 255)
+    draw = ImageDraw.Draw(page)
+    for t in pl["tags"]:
+        page.paste(render_tag(t["id"], t["px"] // 10),
+                   (t["cx"] - t["px"] // 2, t["cy"] - t["px"] // 2))
+    for s in pl["squares"]:
+        draw.rectangle([s["cx"] - s["px"] // 2, s["cy"] - s["px"] // 2,
+                        s["cx"] - s["px"] // 2 + s["px"] - 1,
+                        s["cy"] - s["px"] // 2 + s["px"] - 1], fill=0)
     return page
+
+
+def grid_json(grid, pl):
+    """JSON sidecar describing the layout (schema: meta / tags / squares)."""
+    return {
+        "meta": {
+            "family": "tag36h11",
+            "rows": pl["rows"],
+            "cols": pl["cols"],
+            "page_size_in": [PAGE_W_IN, PAGE_H_IN],
+            "margin_in": MARGIN_IN,
+            "units": "inches",
+            "origin": "top-left corner of tag 0",
+            "x_axis": "right",
+            "y_axis": "down",
+        },
+        "tags": pl["tags_in"],
+        "squares": pl["squares_in"],
+    }
 
 
 def main(argv=None):
@@ -153,17 +190,24 @@ def main(argv=None):
     os.makedirs(out_dir, exist_ok=True)
 
     for grid in GRIDS:
-        cols, rows = grid["cols"], grid["rows"]
-        ids = list(range(grid["id_start"], grid["id_start"] + cols * rows))
+        rows, cols = grid["rows"], grid["cols"]
+        ids = list(range(grid["id_start"], grid["id_start"] + rows * cols))
         assert all(0 <= i < NCODES for i in ids)
+        pl = placements(grid)
         page = build_page(grid)
-        fname = f"{grid['name']}_tag36h11_ids{ids[0]}-{ids[-1]}.pdf"
-        path = os.path.join(out_dir, fname)
+        base = f"{grid['name']}_tag36h11_ids{ids[0]}-{ids[-1]}"
+        pdf_path = os.path.join(out_dir, base + ".pdf")
         # fixed PDF dates so regeneration is byte-reproducible
-        page.save(path, "PDF", resolution=float(DPI),
+        page.save(pdf_path, "PDF", resolution=float(DPI),
                   creationDate="D:20260101000000Z", modDate="D:20260101000000Z")
-        print(f"wrote {path} ({cols}x{rows}, {len(ids)} tags, "
-              f"tag side {grid['tag_in']:.2f} in)")
+        json_path = os.path.join(out_dir, base + ".json")
+        with open(json_path, "w") as f:
+            json.dump(grid_json(grid, pl), f, indent=2)
+            f.write("\n")
+        print(f"wrote {pdf_path} ({rows} rows x {cols} cols, {len(ids)} tags, "
+              f"tag side {grid['tag_in']:.2f} in, "
+              f"{len(pl['squares'])} corner squares)")
+        print(f"wrote {json_path}")
     return 0
 
 

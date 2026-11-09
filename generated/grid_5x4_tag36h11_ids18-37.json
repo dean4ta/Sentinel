@@ -1,0 +1,264 @@
+{
+  "meta": {
+    "family": "tag36h11",
+    "rows": 5,
+    "cols": 4,
+    "page_size_in": [
+      8.5,
+      11.0
+    ],
+    "margin_in": 0.5,
+    "units": "inches",
+    "origin": "top-left corner of tag 0",
+    "x_axis": "right",
+    "y_axis": "down"
+  },
+  "tags": [
+    {
+      "id": 18,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 0.7,
+        "y_in": 0.7
+      }
+    },
+    {
+      "id": 19,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 2.5767,
+        "y_in": 0.7
+      }
+    },
+    {
+      "id": 20,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 4.45,
+        "y_in": 0.7
+      }
+    },
+    {
+      "id": 21,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 6.3267,
+        "y_in": 0.7
+      }
+    },
+    {
+      "id": 22,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 0.7,
+        "y_in": 2.7
+      }
+    },
+    {
+      "id": 23,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 2.5767,
+        "y_in": 2.7
+      }
+    },
+    {
+      "id": 24,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 4.45,
+        "y_in": 2.7
+      }
+    },
+    {
+      "id": 25,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 6.3267,
+        "y_in": 2.7
+      }
+    },
+    {
+      "id": 26,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 0.7,
+        "y_in": 4.7
+      }
+    },
+    {
+      "id": 27,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 2.5767,
+        "y_in": 4.7
+      }
+    },
+    {
+      "id": 28,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 4.45,
+        "y_in": 4.7
+      }
+    },
+    {
+      "id": 29,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 6.3267,
+        "y_in": 4.7
+      }
+    },
+    {
+      "id": 30,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 0.7,
+        "y_in": 6.7
+      }
+    },
+    {
+      "id": 31,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 2.5767,
+        "y_in": 6.7
+      }
+    },
+    {
+      "id": 32,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 4.45,
+        "y_in": 6.7
+      }
+    },
+    {
+      "id": 33,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 6.3267,
+        "y_in": 6.7
+      }
+    },
+    {
+      "id": 34,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 0.7,
+        "y_in": 8.7
+      }
+    },
+    {
+      "id": 35,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 2.5767,
+        "y_in": 8.7
+      }
+    },
+    {
+      "id": 36,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 4.45,
+        "y_in": 8.7
+      }
+    },
+    {
+      "id": 37,
+      "size_in": 1.4,
+      "center": {
+        "x_in": 6.3267,
+        "y_in": 8.7
+      }
+    }
+  ],
+  "squares": [
+    {
+      "center": {
+        "x_in": 1.6367,
+        "y_in": 1.7
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 3.5133,
+        "y_in": 1.7
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 5.39,
+        "y_in": 1.7
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 1.6367,
+        "y_in": 3.7
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 3.5133,
+        "y_in": 3.7
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 5.39,
+        "y_in": 3.7
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 1.6367,
+        "y_in": 5.7
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 3.5133,
+        "y_in": 5.7
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 5.39,
+        "y_in": 5.7
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 1.6367,
+        "y_in": 7.7
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 3.5133,
+        "y_in": 7.7
+      },
+      "size_in": 0.25
+    },
+    {
+      "center": {
+        "x_in": 5.39,
+        "y_in": 7.7
+      },
+      "size_in": 0.25
+    }
+  ]
+}
