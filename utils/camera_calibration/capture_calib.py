@@ -64,6 +64,14 @@ def draw_overlay(bgr, detections):
     return view
 
 
+def should_detect(frame_idx, detect_every):
+    """True when the loop runs detection for this frame index.
+
+    detect_every=1 fires on every frame; detect_every=3 fires on
+    frame 3, 6, 9, ... (~1/3 of frames)."""
+    return frame_idx % detect_every == 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Collect apriltag-grid calibration photos (T003).")
@@ -143,7 +151,7 @@ def main(argv=None):
 
         # Run detection at most once per `detect_every` frames; the
         # interval grows when fps drops below 8 and shrinks above 15.
-        if frame_idx % detect_every == 1:
+        if should_detect(frame_idx, detect_every):
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             detections = detector.detect(gray, estimate_tag_pose=False)
         overlay = draw_overlay(frame, detections)
