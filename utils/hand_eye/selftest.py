@@ -535,6 +535,20 @@ def test_py_compile():
         print(f'PASS py_compile: {path.name}')
 
 
+def test_py310_compat():
+    # The Orin runs Python 3.10. PEP 701 syntax (same-quote/multiline
+    # f-string fields) parses on the Mac's 3.12+ but SyntaxErrors on
+    # 3.10 — caught this live on the robot 2026-11-11 (test_handeye.py
+    # line 528). Parse every deployed script as 3.10 grammar.
+    import ast
+    for path in (ARM_BRIDGE, HERE / 'handeye_capture.py',
+                 HERE / 'solve_handeye.py', HERE / 'test_handeye.py',
+                 HERE / 'selftest.py'):
+        source = path.read_text()
+        ast.parse(source, filename=str(path), feature_version=(3, 10))
+        print(f'PASS py310-grammar: {path.name}')
+
+
 def main():
     print('T004-T006 selftest (no ROS, no camera, no detector)')
     test_procrustes_exact()
@@ -550,6 +564,7 @@ def main():
     test_t006_lock()
     test_t006_pipeline()
     test_py_compile()
+    test_py310_compat()
     print('RESULT: PASS — all T004-T006 selftests green')
     return 0
 

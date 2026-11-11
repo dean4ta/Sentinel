@@ -525,8 +525,7 @@ def main(argv=None):
     print(f'lift:    {args.z_lift:.1f} mm along grid normal '
           f'({normal[0]:+.3f}, {normal[1]:+.3f}, {normal[2]:+.3f}) in '
           f'arm frame — '
-          f'{"yaml grid-z sign FLIPPED (it pointed through the board)"
-             if flipped else "sign as in the yaml R"}')
+          f'{("yaml grid-z sign FLIPPED (it pointed through the board)" if flipped else "sign as in the yaml R")}')
     print(f'reach:   tol {args.reach_tol:.1f} mm, timeout '
           f'{args.timeout:.1f} s, hold {args.hold:.1f} s, '
           f'move-time {args.move_time:.1f} s')
