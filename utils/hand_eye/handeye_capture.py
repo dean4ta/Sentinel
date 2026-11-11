@@ -2,7 +2,8 @@
 """T004 — hand-eye touch calibration capture (Orin, ROS2 + C270).
 
 The user hand-guides the arm tip to 12 grid targets while a detection
-window shows them as large red dots. SPACE records the current
+window shows ONE target at a time as a large red dot — the current
+target, the next spot to touch (T005). SPACE records the current
 arm/ee_pose (bridge-published RoArm FK); after 12 points the script
 writes pairs.json, runs the Procrustes solver and writes handeye.yaml.
 
@@ -18,12 +19,14 @@ BEFORE detection and homography; a missing file warns and falls back
 to raw frames (state shown on the control window).
 
 Two windows:
-  "detections"  live dt-apriltags overlay (quads + IDs) plus the 12
-                target dots (filled red, radius ~20 px, thin white
-                ring). Recorded targets are drawn green, the current
-                target gets a yellow ring. Dots need >= 4 grid tags
-                matched (homography grid-inches -> pixels); otherwise
-                "move board into view" is shown.
+  "detections"  live dt-apriltags overlay (quads + IDs) plus ONE
+                target dot: the current target (filled red, radius
+                ~20 px, thin white ring, yellow highlight ring) marks
+                the next spot to touch. Recorded targets stay visible
+                as small green dots (r~8); future targets are hidden
+                (T005). Dots need >= 4 grid tags matched (homography
+                grid-inches -> pixels); otherwise "move board into
+                view" is shown.
   "control"     counter, current target label, arm pose fresh/stale
                 indicator, undistort on/off, instructions.
 
@@ -355,19 +358,32 @@ def draw_overlay(view, detections):
     return out
 
 
-def draw_targets(view, px_targets, n_recorded, current):
-    """The 12 targets as filled red dots (r=20) with a thin white ring.
+def targets_to_draw(n_recorded, n_targets=N_TARGETS):
+    """Per-index draw style for the T005 one-dot UX (pure, testable).
 
-    Recorded targets are drawn green over the red; the current target
-    gets a yellow highlight ring."""
-    for i, (x, y) in enumerate(px_targets):
+    index < n_recorded  -> 'recorded'  small green dot (progress)
+    index == n_recorded -> 'current'   the one large red dot
+    index > n_recorded  -> 'hidden'    not drawn
+
+    n_recorded == n_targets yields all 'recorded' (0 'current')."""
+    return ['recorded' if i < n_recorded else
+            'current' if i == n_recorded else 'hidden'
+            for i in range(n_targets)]
+
+
+def draw_targets(view, px_targets, n_recorded):
+    """T005: draw ONLY the current target — a large red dot (r=20) with
+    a thin white ring and a yellow highlight ring, marking the next
+    spot to touch. Recorded targets stay visible as small green dots
+    (r=8); future targets are not drawn."""
+    for (x, y), style in zip(px_targets, targets_to_draw(n_recorded)):
         p = (int(round(x)), int(round(y)))
-        cv2.circle(view, p, 20, (0, 0, 255), -1)
-        cv2.circle(view, p, 20, (255, 255, 255), 2)
-        if i < n_recorded:
-            cv2.circle(view, p, 12, (0, 200, 0), -1)
-        if i == current:
+        if style == 'current':
+            cv2.circle(view, p, 20, (0, 0, 255), -1)
+            cv2.circle(view, p, 20, (255, 255, 255), 2)
             cv2.circle(view, p, 26, (0, 255, 255), 3)
+        elif style == 'recorded':
+            cv2.circle(view, p, 8, (0, 200, 0), -1)
     return view
 
 
@@ -679,7 +695,7 @@ def main(argv=None):
 
             overlay = draw_overlay(work, detections)
             if px_targets is not None:
-                draw_targets(overlay, px_targets, len(recorded), current)
+                draw_targets(overlay, px_targets, len(recorded))
             else:
                 cv2.putText(overlay, 'move board into view '
                             f'({MIN_TAGS_FOR_DOTS}+ grid tags needed)',

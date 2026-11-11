@@ -16,6 +16,9 @@ solve_handeye.py:
      missing file returns None + a WARN on stderr
   5. py_compile of arm_bridge.py, handeye_capture.py, solve_handeye.py
      and this file (compile only — no ROS imports are executed)
+  6. T005 one-dot draw UX: targets_to_draw(k) marks exactly one target
+     'current' (red/large, index k), exactly k 'recorded' (green) and
+     11-k 'hidden' for k in 0..11; k=12 -> 0 current, 12 recorded
 
 Exit codes: 0 all pass, 1 a check failed.
 """
@@ -199,6 +202,33 @@ def test_targets():
           f'interior), outer match JSON, interior central')
 
 
+def test_target_dot_ux():
+    # T005 (D-013): the detections window shows ONLY ONE red dot — the
+    # current target. For recorded count k in 0..11 exactly one target
+    # has the red/large 'current' style (the k-th), exactly k have the
+    # green 'recorded' style, and the remaining 11-k are 'hidden'.
+    # k=12 -> 0 current, 12 recorded (all green, none hidden).
+    for k in range(13):
+        styles = hc.targets_to_draw(k)
+        assert len(styles) == hc.N_TARGETS, f'k={k}: wrong length'
+        cur = [i for i, s in enumerate(styles) if s == 'current']
+        rec = sum(s == 'recorded' for s in styles)
+        hid = sum(s == 'hidden' for s in styles)
+        if k < 12:
+            assert cur == [k], f'k={k}: current must be exactly [{k}], got {cur}'
+            assert rec == k and hid == 11 - k, \
+                f'k={k}: got {rec} recorded / {hid} hidden'
+            assert all(s == 'recorded' for s in styles[:k]), \
+                f'k={k}: first {k} must be recorded'
+            assert all(s == 'hidden' for s in styles[k + 1:]), \
+                f'k={k}: indices {k + 1}.. must be hidden'
+        else:
+            assert cur == [] and rec == 12 and hid == 0, \
+                'k=12: all recorded, none current/hidden'
+    print('PASS target-dot-ux: 1 current red, k green, 11-k hidden '
+          'per step; 12 -> 12 green, 0 red')
+
+
 def test_undistort():
     k = np.array([[700.0, 0.0, 640.0], [0.0, 700.0, 360.0],
                   [0.0, 0.0, 1.0]])
@@ -268,14 +298,15 @@ def test_py_compile():
 
 
 def main():
-    print('T004 selftest (no ROS, no camera, no detector)')
+    print('T004/T005 selftest (no ROS, no camera, no detector)')
     test_procrustes_exact()
     test_procrustes_noisy()
     test_pairs_path()
     test_targets()
+    test_target_dot_ux()
     test_undistort()
     test_py_compile()
-    print('RESULT: PASS — all T004 selftests green')
+    print('RESULT: PASS — all T004/T005 selftests green')
     return 0
 
 
