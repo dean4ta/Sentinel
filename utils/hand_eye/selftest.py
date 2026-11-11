@@ -32,13 +32,21 @@ solve_handeye.py:
      (and 400 mm -> 200)
   10. T006 handeye.yaml loader: reads synthetic solve_handeye.py
       output (PyYAML dump and the plain emitter format) and rejects
-      bad shapes / a non-rotation R / missing files
+      bad shapes / a non-rotation R / a det=1 non-orthonormal R /
+      missing files
+  11. T006 double-run guard: a live pid's lock refuses a second
+      acquire; a stale (dead-pid) lock is cleared; release removes
+      only our own lock
+  12. T006 end-to-end core path: real grid JSON + synthetic solver
+      handeye.yaml -> 12 targets -> 12 commanded arm points, each
+      exactly z_lift above the board plane in the grid frame
 
 Exit codes: 0 all pass, 1 a check failed.
 """
 
 import io
 import math
+import os
 import py_compile
 import sys
 import tempfile
@@ -423,11 +431,15 @@ def test_t006_yaml():
         bad_det = Path(tmp) / 'bad_det.yaml'
         bad_det.write_text('R: [[1, 0, 0], [0, 1, 0], [0, 0, -1]]\n'
                            't: [1, 2, 3]\n')  # reflection, det=-1
+        bad_ortho = Path(tmp) / 'bad_ortho.yaml'
+        bad_ortho.write_text('R: [[1, 0, 0], [0, 1, 0.5], [0, 0, 1]]\n'
+                             't: [1, 2, 3]\n')  # det=1 but not
+                                                # orthonormal
         bad_eq = Path(tmp) / 'bad_eq.yaml'
         bad_eq.write_text(sh.plain_yaml(data).replace(
             'grid_mm = R @ arm_xyz_mm + t',
             'grid_mm = arm_xyz_mm + t'))
-        for p in (bad_r, bad_det, bad_eq):
+        for p in (bad_r, bad_det, bad_ortho, bad_eq):
             try:
                 th.load_handeye(p)
                 raise AssertionError(f'{p.name} must be rejected')
@@ -439,7 +451,79 @@ def test_t006_yaml():
         except ValueError:
             pass
     print('PASS t006-yaml: loader reads solver output (both emitters), '
-          'rejects bad R/t/equation/missing')
+          'rejects bad R/t/equation/det/orthonormality/missing')
+
+
+def test_t006_lock():
+    """T006 double-run guard: a live pid's lock refuses a second
+    acquire; a stale (dead-pid) lock is cleared and re-acquired;
+    release removes only our own lock."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / 'lock'
+        ok, msg = th.acquire_lock(path)
+        assert ok, msg
+        assert int(path.read_text().strip()) == os.getpid()
+        ok2, msg2 = th.acquire_lock(path)
+        assert not ok2, 'a second acquire must be refused'
+        assert 'refusing' in msg2, 'refusal must explain why'
+        th.release_lock(path)
+        assert not path.exists(), 'release must remove our lock'
+        # Stale lock (dead pid): cleared, then acquired fresh.
+        path.write_text('999999999\n')
+        ok3, msg3 = th.acquire_lock(path)
+        assert ok3, f'stale lock must be cleared: {msg3}'
+        assert int(path.read_text().strip()) == os.getpid()
+        th.release_lock(path)
+        assert not path.exists()
+        # A live pid (ours) refuses.
+        path.write_text(f'{os.getpid()}\n')
+        ok4, _ = th.acquire_lock(path)
+        assert not ok4, 'our own live pid must refuse'
+        th.release_lock(path)
+    print('PASS t006-lock: live pid refused, stale pid cleared, '
+          'own lock released')
+
+
+def test_t006_pipeline():
+    """T006 end-to-end core path: a synthetic solver handeye.yaml +
+    the REAL grid JSON -> 12 targets -> 12 commanded arm points, each
+    exactly z_lift above the board plane in the grid frame, with
+    per-move spd inside the clamp bounds."""
+    rng = np.random.default_rng(5)
+    r_true = random_rotation(rng)
+    t_true = rng.uniform(-200.0, 200.0, size=3)
+    points = [{'target': f't{i}', 'tag_id': 18, 'corner': 'TL',
+               'grid': [float(i) / sh.IN_TO_MM, 0.0],
+               'arm_xyz_mm': [float(v)
+                              for v in rng.uniform(-100.0, 100.0, 3)]}
+              for i in range(12)]
+    data = sh.handeye_data(points, r_true, t_true, 0.4, np.full(12, 0.4))
+    with tempfile.TemporaryDirectory() as tmp:
+        yaml_path = Path(tmp) / 'handeye.yaml'
+        sh.dump_yaml(yaml_path, data)
+        r, t = th.load_handeye(yaml_path)
+        assert np.allclose(r, r_true, atol=1e-9), 'R load mismatch'
+        assert np.allclose(t, t_true, atol=1e-9), 't load mismatch'
+        targets = th.load_targets(GRID)
+        assert len(targets) == 12
+        normal, _ = th.lift_direction(r)
+        prev = None
+        for tg in targets:
+            g = np.array([tg['grid'][0], tg['grid'][1], 0.0],
+                         dtype=float) * sh.IN_TO_MM
+            cmd = th.target_arm_xyz(g, r, t, 10.0, normal)
+            back = r @ cmd + t
+            assert np.allclose(back[:2], g[:2], atol=1e-9), \
+                'lift must not shift the in-plane position'
+            assert np.isclose(back[2], 10.0, atol=1e-9), \
+                'commanded point must sit 10 mm above the board plane'
+            if prev is not None:
+                spd = th.compute_spd(np.linalg.norm(cmd - prev),
+                                     2.0, 50.0, 300.0)
+                assert 50.0 <= spd <= 300.0, f'spd {spd} out of clamp'
+            prev = cmd
+    print('PASS t006-pipeline: real grid JSON + synthetic yaml -> 12 '
+          'lifted commands (grid z == +10 mm, spd clamped)')
 
 
 def test_py_compile():
@@ -463,6 +547,8 @@ def main():
     test_t006_lift()
     test_t006_spd()
     test_t006_yaml()
+    test_t006_lock()
+    test_t006_pipeline()
     test_py_compile()
     print('RESULT: PASS — all T004-T006 selftests green')
     return 0

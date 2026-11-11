@@ -16,7 +16,7 @@ publish arm/ee_goals, wait until the bridge's arm/ee_pose is within
 then the next target. Per-move spd is computed as
 clamp(dist / --move-time, --spd-min, --spd-max) and printed — the
 ACTUAL T:1041 spd/acc come from the bridge's ee_spd/ee_acc node params
-(defaults 200/40); see the spd-unit note below.
+(defaults 100/40); see the spd-unit note below.
 
 The orientation in each goal is the latest fresh arm/ee_pose
 quaternion, passed through unchanged, so the gripper yaw stays where
@@ -27,8 +27,11 @@ Safety:
   * NEVER releases torque, NEVER opens serial — the only arm command
     this script sends is arm/ee_goals publications.
   * Ctrl+C / SIGTERM / SIGHUP / Q (then Enter) stop the sequence
-    immediately: no new goals are published and the arm holds its
-    current pose with torque locked (every T:1041 re-locks torque).
+    immediately: no new goals are published. T:1041 is ONE autonomous
+    command with no cancel path, so an in-flight move COMPLETES first
+    (~2-3 s at the default bridge spd) and only then does the arm
+    hold — keep clear for those seconds. Torque stays locked (every
+    T:1041 re-locks it).
   * The FIRST unreached target STOPS the whole sequence (documented
     decision: no flailing — an unreached target usually means a bad
     calibration or a bad command, and continuing could drive the arm
@@ -48,6 +51,7 @@ bridge's ee_spd/ee_acc params are the actual knobs (launch args).
 """
 
 import argparse
+import os
 import select
 import signal
 import sys
@@ -71,6 +75,7 @@ N_TARGETS = 12
 IN_TO_MM = 25.4
 READY_STATUS_EVERY_S = 5.0
 NORMAL_Z_WARN = 0.2      # |normal.arm_z| below this: sign check shaky
+LOCK_PATH = '/tmp/test_handeye.lock'
 
 
 # ---------------------------------------------------------------------
@@ -144,6 +149,9 @@ def load_handeye(path):
     if abs(det - 1.0) > 1e-3:
         raise ValueError(f'{p}: R is not a proper rotation '
                          f'(det={det:.3f}) — bad handeye.yaml?')
+    if not np.allclose(r.T @ r, np.eye(3), atol=1e-3):
+        raise ValueError(f'{p}: R is not orthonormal (R^T @ R != I) — '
+                         'bad handeye.yaml?')
     equation = data.get('equation')
     if equation is not None and equation != 'grid_mm = R @ arm_xyz_mm + t':
         raise ValueError(f'{p}: unexpected equation {equation!r}')
@@ -300,6 +308,54 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
 # never releases torque).
 # ---------------------------------------------------------------------
 
+def pid_alive(pid):
+    """True when a process with this pid exists (kill(pid, 0) probe)."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:  # pragma: no cover — exists, not ours
+        return True
+
+
+def acquire_lock(path=LOCK_PATH):
+    """Single-instance guard (two concurrent runs would interleave
+    goal streams on one arm). Returns (ok, message): refuses when
+    another LIVE instance holds the lock; clears stale (dead-pid)
+    locks; writes our pid into the file."""
+    p = Path(path)
+    if p.exists():
+        old_pid = None
+        try:
+            old_pid = int(p.read_text().strip())
+        except (OSError, ValueError):
+            pass
+        if old_pid is not None and pid_alive(old_pid):
+            return False, (f'another test_handeye.py (pid {old_pid}) '
+                           f'holds {p} — refusing to start a second run')
+        try:
+            p.unlink()  # stale lock: the holder is gone
+        except OSError:  # pragma: no cover
+            pass
+    try:
+        p.write_text(f'{os.getpid()}\n')
+    except OSError as exc:  # pragma: no cover
+        return False, f'cannot create lock {p}: {exc}'
+    return True, 'ok'
+
+
+def release_lock(path=LOCK_PATH):
+    """Remove the lock only if it still holds OUR pid (never delete a
+    lock a newer instance may have re-created)."""
+    p = Path(path)
+    try:
+        if int(p.read_text().strip()) == os.getpid():
+            p.unlink()
+    except (OSError, ValueError):
+        pass
+
+
 TERMINATION_SIGNALS = (
     (signal.SIGINT, 'SIGINT'),
     (signal.SIGTERM, 'SIGTERM'),
@@ -310,11 +366,13 @@ TERMINATION_SIGNALS = (
 def _make_signal_handler(name):  # pragma: no cover — runs on the Orin
     # handeye_capture's pattern: raise KeyboardInterrupt so the main
     # loop exits cleanly while rclpy is still alive. No torque re-lock
-    # in the finally — torque was never released here, and the arm
-    # holds its current pose once the goals stop.
+    # in the finally — torque was never released here. T:1041 has no
+    # cancel path: an in-flight move COMPLETES (~2-3 s) before the arm
+    # holds; the message below says so.
     def handler(signum, frame):
-        print(f'{name} received — stopping (arm holds its pose, '
-              'torque stays locked)', file=sys.stderr)
+        print(f'{name} received — stopping the sequence; an in-flight '
+              'move (if any) completes first (~2-3 s), then the arm '
+              'holds. Torque stays locked.', file=sys.stderr)
         raise KeyboardInterrupt
     return handler
 
@@ -359,9 +417,11 @@ def parse_args(argv):
                     help='lift above the board plane along the grid '
                          'normal, mm (0 = exact on-plane) '
                          '(default %(default)s)')
-    ap.add_argument('--reach-tol', type=float, default=15.0,
+    ap.add_argument('--reach-tol', type=float, default=25.0,
                     help='reached = |ee_pose - commanded| below this, '
-                         'mm (default %(default)s)')
+                         'mm (default %(default)s; the first '
+                         'calibration\'s worst residual was 22 mm, so '
+                         '25 mm is the sane first-run default)')
     ap.add_argument('--move-time', type=float, default=2.0,
                     help='planned seconds per move; computed spd = '
                          'clamp(dist/move-time, spd-min, spd-max) '
@@ -473,9 +533,24 @@ def main(argv=None):
     if args.z_lift < 0:
         print('WARN: negative --z-lift pushes TOWARD the board — '
               're-check before running!', file=sys.stderr)
+    print('WARN: if handeye_capture.py just ran, the arm may still be '
+          'torque-released (limp) — support it before starting; the '
+          'first T:1041 re-locks torque and moves it.', file=sys.stderr)
+    print('WARN: the board must be in the same position as during the '
+          'pairs.json capture (hand-eye calibration).', file=sys.stderr)
     print('SAFETY: autonomous arm motion — keep clear of the arm and '
-          'board. Q or Ctrl+C stops immediately (arm holds its pose, '
-          'torque stays locked).')
+          'board. Q or Ctrl+C stops the sequence; an in-flight move '
+          '(if any) completes first (~2-3 s), then the arm holds. '
+          'Torque stays locked.')
+
+    # Acquired only after every args/env/file check above, so all the
+    # exit-2 paths leave no lock behind; the try/finally below always
+    # releases it. (A lock lost to a hard crash self-heals: the next
+    # start sees a dead pid and clears it.)
+    ok, msg = acquire_lock()
+    if not ok:
+        print(f'ERROR: {msg}', file=sys.stderr)
+        return 2
 
     rclpy.init()
     install_signal_handlers()
@@ -501,7 +576,7 @@ def main(argv=None):
                   f'({target["label"]}): cmd ({cmd[0]:.1f}, {cmd[1]:.1f}, '
                   f'{cmd[2]:.1f}) mm, dist {dist:.0f} mm, computed spd '
                   f'{spd:.0f} (actual T:1041 spd = bridge ee_spd '
-                  f'param, default 200)')
+                  f'param, default 100)')
             reached, err, actual = wait_reach(
                 node, cmd, args.timeout, args.reach_tol)
             if not reached:
@@ -509,8 +584,16 @@ def main(argv=None):
                 print(f'WARN: target {k + 1} ({target["target"]}) not '
                       f'reached in {args.timeout:.1f} s, err '
                       f'{err_txt} mm')
+                if err is not None:
+                    print(f'hint: retry with --reach-tol '
+                          f'{err + 5.0:.0f} mm (this target missed by '
+                          f'{err:.1f} mm)')
+                else:
+                    print('hint: no arm/ee_pose at all — check the '
+                          'bridge (ros2 topic hz arm/ee_pose)')
                 print('STOP: aborting the sequence after the first '
-                      'unreached target (safety — no flailing). Arm '
+                      'unreached target (safety — no flailing). An '
+                      'in-flight move (if any) completes, then the arm '
                       'holds its current pose, torque stays locked.')
                 stopped_early = True
                 break
@@ -532,8 +615,10 @@ def main(argv=None):
                   f'-> ({act_w[0]:.1f}, {act_w[1]:.1f}, {act_w[2]:.1f}))')
             exit_code = 0
     except (KeyboardInterrupt, StopRequested):
-        print('stopped — arm holding')
+        print('stopped — no new goals; an in-flight move (if any) '
+              'completes (~2-3 s), then the arm holds')
     finally:
+        release_lock()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

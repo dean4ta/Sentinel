@@ -44,9 +44,10 @@ package or one pip install.
   port.
 - `test_handeye.py` (T006) DOES move the arm — its first run is the
   first autonomous arm motion. Keep clear of the arm and board; Q or
-  Ctrl+C stops immediately (the arm holds its pose, torque stays
-  locked — the script never releases torque). It stops after the
-  first unreached target.
+  Ctrl+C stops the sequence, but T:1041 has no cancel path — an
+  in-flight move (if any) completes first (~2-3 s), then the arm
+  holds; torque stays locked (the script never releases torque). It
+  stops after the first unreached target.
 - `SIGKILL` cannot be caught: if the script is SIGKILLed while torque
   is released the arm stays limp — re-lock manually with
   `ros2 service call arm/torque sentinel_msgs/srv/SetTorque

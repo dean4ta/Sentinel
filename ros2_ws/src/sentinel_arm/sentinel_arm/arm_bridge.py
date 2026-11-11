@@ -44,8 +44,10 @@ class ArmBridge(Node):
         # T:1041 moves from arm/ee_goals (x/y/z mm + yaw t rad). The
         # repo docs do not document T:1041 spd/acc units — assumed to
         # be the same scale as the T:101 spd/acc and the existing
-        # T:1041 home move below (200/40).
-        self.declare_parameter('ee_spd', 200)
+        # T:1041 home move below. ee_spd defaults to 100 (slower than
+        # the home move's 200) for the first autonomous runs; tune via
+        # launch params.
+        self.declare_parameter('ee_spd', 100)
         self.declare_parameter('ee_acc', 40)
 
         port = self.get_parameter('port').value
@@ -70,6 +72,13 @@ class ArmBridge(Node):
             JointState, 'arm/joint_goals', self._goal_cb, 10)
         self.ee_goal_sub = self.create_subscription(
             PoseStamped, 'arm/ee_goals', self._ee_goal_cb, 10)
+        # arm/ee_goals throttle: a publisher at 10+ Hz would saturate
+        # the serial link, starve the T:105 polls, and leave queued
+        # T:1041 lines moving the arm after the publisher stops.
+        # Goals are coalesced to the LATEST one and flushed by this
+        # timer at most once per 100 ms.
+        self._pending_ee_goal = None
+        self._ee_goal_timer = self.create_timer(0.1, self._ee_goal_flush)
         self.torque_srv = self.create_service(
             SetTorque, 'arm/torque', self._torque_cb)
         rate = self.get_parameter('read_rate').value
@@ -191,7 +200,7 @@ class ArmBridge(Node):
         # Non-yaw quaternion components are ignored.
         #
         # spd/acc come from the 'ee_spd'/'ee_acc' node params (defaults
-        # 200/40, same scale as the T:1041 home move), NOT from the
+        # 100/40; same scale as the T:1041 home move), NOT from the
         # message. T:1041 spd/acc units are undocumented in the repo;
         # assumed to be the same scale as T:101 spd/acc.
         #
@@ -212,11 +221,23 @@ class ArmBridge(Node):
         yaw = math.atan2(math.sin(yaw), math.cos(yaw))  # wrap to [-pi, pi]
         spd = self.get_parameter('ee_spd').value
         acc = self.get_parameter('ee_acc').value
-        self._write(json.dumps(
-            {'T': 1041, 'x': float(msg.pose.position.x),
-             'y': float(msg.pose.position.y),
-             'z': float(msg.pose.position.z),
-             't': yaw, 'spd': spd, 'acc': acc}))
+        # Coalesce: only the latest goal survives; _ee_goal_flush
+        # writes it on the 100 ms timer cadence.
+        self._pending_ee_goal = {
+            'T': 1041, 'x': float(msg.pose.position.x),
+            'y': float(msg.pose.position.y),
+            'z': float(msg.pose.position.z),
+            't': yaw, 'spd': spd, 'acc': acc}
+
+    def _ee_goal_flush(self):
+        # Timer callback (100 ms): write the latest pending ee goal,
+        # at most once per period. Runs only when ready; the write
+        # lock keeps this off the RX thread's serial use.
+        if not self.ready or self._pending_ee_goal is None:
+            return
+        goal = self._pending_ee_goal
+        self._pending_ee_goal = None
+        self._write(json.dumps(goal))
 
     def _torque_cb(self, req, resp):
         # T:210: cmd:0 releases the motors (hand-guiding / manual teach),
