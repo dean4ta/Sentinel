@@ -14,11 +14,25 @@ solve_handeye.py:
   4. Undistort path with a synthetic camera_matrix.yaml: load -> maps
      -> remap changes the image (non-identity), output shape kept;
      missing file returns None + a WARN on stderr
-  5. py_compile of arm_bridge.py, handeye_capture.py, solve_handeye.py
-     and this file (compile only — no ROS imports are executed)
+  5. py_compile of arm_bridge.py, handeye_capture.py, solve_handeye.py,
+     test_handeye.py and this file (compile only — no ROS imports are
+     executed)
   6. T005 one-dot draw UX: targets_to_draw(k) marks exactly one target
      'current' (red/large, index k), exactly k 'recorded' (green) and
      11-k 'hidden' for k in 0..11; k=12 -> 0 current, 12 recorded
+  7. T006 transform round-trip: handeye.yaml-style R, t + a grid
+     point -> arm -> grid -> arm recovers exact (< 1e-9 mm), including
+     a planar-solve-style R (grid-z column = cross of the in-plane
+     columns, as the Procrustes solve produces up to the normal sign)
+  8. T006 lift math: z_lift=10 mm changes only the grid-normal
+     component, by exactly 10 mm; the signed normal points AWAY from
+     the board (arm frame z > 0) and a yaml R whose grid +z points
+     through the board is flipped
+  9. T006 spd clamp: distances 0/50/1000 mm over 2 s -> 50/50/300
+     (and 400 mm -> 200)
+  10. T006 handeye.yaml loader: reads synthetic solve_handeye.py
+      output (PyYAML dump and the plain emitter format) and rejects
+      bad shapes / a non-rotation R / missing files
 
 Exit codes: 0 all pass, 1 a check failed.
 """
@@ -39,6 +53,7 @@ sys.path.insert(0, str(HERE))
 
 import handeye_capture as hc  # noqa: E402  (core: no ROS needed)
 import solve_handeye as sh  # noqa: E402
+import test_handeye as th  # noqa: E402  (core: numpy only, no ROS)
 
 ROOT = HERE.parents[1]
 GRID = ROOT / 'generated' / 'grid_5x4_tag36h11_ids18-37.json'
@@ -289,24 +304,167 @@ def test_undistort():
           'missing -> None + WARN')
 
 
+def test_t006_roundtrip():
+    """T006 transform round-trip: handeye.yaml-style R, t + a grid
+    point -> arm XYZ -> grid -> arm recovers exact (< 1e-9 mm)."""
+    rng = np.random.default_rng(17)
+    r_true = random_rotation(rng)
+    t_true = rng.uniform(-200.0, 200.0, size=3)
+    for g in ([0.0, 0.0, 0.0],
+              [7.4667 * sh.IN_TO_MM, 9.3333 * sh.IN_TO_MM, 0.0],
+              [3.0 * sh.IN_TO_MM, 5.0 * sh.IN_TO_MM, 0.0]):
+        g = np.array(g, dtype=float)
+        arm = th.grid_to_arm(g, r_true, t_true)
+        assert np.allclose(r_true @ arm + t_true, g, atol=1e-9), \
+            'grid = R @ arm + t must hold'
+        back = th.arm_to_grid(arm, r_true, t_true)
+        assert np.allclose(back, g, atol=1e-9), \
+            f'round-trip drift {back - g}'
+    # A planar-solve-style R (grid-z column = cross of the in-plane
+    # columns — exactly what SVD Procrustes produces for planar data,
+    # up to the normal sign) also round-trips exactly.
+    u = np.array([1.0, 0.3, -0.2])
+    u /= np.linalg.norm(u)
+    v = np.array([0.1, 1.0, 0.4])
+    v = v - u * (v @ u)
+    v /= np.linalg.norm(v)
+    r_planar = np.column_stack([u, v, np.cross(u, v)])
+    assert abs(np.linalg.det(r_planar) - 1.0) < 1e-9, 'planar R proper'
+    g = np.array([50.0, -30.0, 0.0])
+    assert np.allclose(
+        th.arm_to_grid(th.grid_to_arm(g, r_planar, t_true),
+                       r_planar, t_true),
+        g, atol=1e-9), 'planar-style R round-trip'
+    print('PASS t006-roundtrip: arm->grid->arm exact (< 1e-9 mm), '
+          'incl. planar-solve R')
+
+
+def test_t006_lift():
+    """T006 lift math: z_lift=10 changes only the grid-normal
+    component by exactly 10 mm, and the signed normal points away from
+    the board (positive arm-frame z), flipping a yaml R whose grid +z
+    points through the board."""
+    rng = np.random.default_rng(23)
+    r_true = random_rotation(rng)
+    t_true = rng.uniform(-200.0, 200.0, size=3)
+    g = np.array([40.0, 60.0, 0.0])
+    normal, flipped = th.lift_direction(r_true)
+    assert np.isclose(np.linalg.norm(normal), 1.0), 'normal must be unit'
+    assert normal[2] > 0.0, 'normal must point away (arm z up)'
+    arm0 = th.grid_to_arm(g, r_true, t_true)
+    arm_lift = th.target_arm_xyz(g, r_true, t_true, 10.0, normal)
+    d = arm_lift - arm0
+    assert np.isclose(np.linalg.norm(d), 10.0, atol=1e-9), '10 mm lift'
+    assert np.allclose(d, 10.0 * normal, atol=1e-9), \
+        'lift must be purely along the grid normal'
+    # In the grid frame the lift is exactly +10 in z: the commanded
+    # point sits 10 mm above the board plane.
+    assert np.allclose(r_true @ arm_lift + t_true,
+                       g + [0.0, 0.0, 10.0], atol=1e-9), \
+        'grid-frame lift must be exactly [0, 0, 10]'
+    # Sign: a yaml R whose grid +z points through the board (downward
+    # in the arm frame) is flipped so the lift goes away from it.
+    r_down = np.diag([1.0, -1.0, -1.0])  # proper rotation, n0=(0,0,-1)
+    normal_d, flipped_d = th.lift_direction(r_down)
+    assert flipped_d, 'downward yaml grid z must be flagged flipped'
+    assert np.allclose(normal_d, [0.0, 0.0, 1.0]), 'flipped -> up'
+    # Zero lift leaves the point unchanged.
+    assert np.allclose(th.target_arm_xyz(g, r_true, t_true, 0.0, normal),
+                       arm0), 'z_lift=0 must not move the point'
+    print('PASS t006-lift: 10 mm = pure grid-normal component; '
+          'downward yaml grid-z sign is flipped')
+
+
+def test_t006_spd():
+    """T006 spd clamp: distances 0/50/1000 mm over 2 s -> 50/50/300."""
+    f = lambda d: th.compute_spd(d, 2.0, 50.0, 300.0)
+    assert f(0.0) == 50.0, '0 mm -> spd-min'
+    assert f(50.0) == 50.0, '50 mm -> 25 mm/s clamped to spd-min'
+    assert f(1000.0) == 300.0, '1000 mm -> 500 mm/s clamped to spd-max'
+    assert f(400.0) == 200.0, '400 mm -> exactly the move-time speed'
+    assert th.compute_spd(250.0, 5.0, 50.0, 300.0) == 50.0, \
+        '250 mm over 5 s -> 50 (floor)'
+    print('PASS t006-spd: 0/50/1000 mm over 2 s -> 50/50/300')
+
+
+def test_t006_yaml():
+    """T006 handeye.yaml loader: reads synthetic solve_handeye.py
+    output (PyYAML dump + plain emitter format) and rejects bad
+    shapes / a non-rotation R / missing files."""
+    rng = np.random.default_rng(31)
+    r_true = random_rotation(rng)
+    t_true = rng.uniform(-200.0, 200.0, size=3)
+    points = [{'target': f't{i}', 'tag_id': 18, 'corner': 'TL',
+               'grid': [float(i) / sh.IN_TO_MM, 0.0],
+               'arm_xyz_mm': [float(v)
+                              for v in rng.uniform(-100.0, 100.0, 3)]}
+              for i in range(12)]
+    data = sh.handeye_data(points, r_true, t_true, 0.5,
+                           np.full(12, 0.5))
+    with tempfile.TemporaryDirectory() as tmp:
+        pyyaml_path = Path(tmp) / 'pyyaml.yaml'
+        plain_path = Path(tmp) / 'plain.yaml'
+        sh.dump_yaml(pyyaml_path, data)  # PyYAML when present
+        plain_path.write_text(sh.plain_yaml(data))
+        for p in (pyyaml_path, plain_path):
+            rr, tt = th.load_handeye(p)
+            assert np.allclose(rr, r_true, atol=1e-9), f'{p.name}: R'
+            assert np.allclose(tt, t_true, atol=1e-9), f'{p.name}: t'
+        # The minimal plain-format parser itself (the PyYAML-free
+        # fallback path on boxes without PyYAML).
+        parsed = th._parse_plain_handeye(sh.plain_yaml(data))
+        assert parsed is not None, 'plain format must parse'
+        assert np.allclose(parsed['R'], r_true, atol=1e-9)
+        assert np.allclose(parsed['t'], t_true, atol=1e-9)
+        assert th._parse_plain_handeye('nonsense\n') is None
+        # Bad shapes / content are rejected with ValueError.
+        bad_r = Path(tmp) / 'bad_r.yaml'
+        bad_r.write_text('R: [[1, 0, 0], [0, 1, 0]]\nt: [1, 2, 3]\n')
+        bad_det = Path(tmp) / 'bad_det.yaml'
+        bad_det.write_text('R: [[1, 0, 0], [0, 1, 0], [0, 0, -1]]\n'
+                           't: [1, 2, 3]\n')  # reflection, det=-1
+        bad_eq = Path(tmp) / 'bad_eq.yaml'
+        bad_eq.write_text(sh.plain_yaml(data).replace(
+            'grid_mm = R @ arm_xyz_mm + t',
+            'grid_mm = arm_xyz_mm + t'))
+        for p in (bad_r, bad_det, bad_eq):
+            try:
+                th.load_handeye(p)
+                raise AssertionError(f'{p.name} must be rejected')
+            except ValueError:
+                pass
+        try:
+            th.load_handeye(Path(tmp) / 'nope.yaml')
+            raise AssertionError('missing file must be rejected')
+        except ValueError:
+            pass
+    print('PASS t006-yaml: loader reads solver output (both emitters), '
+          'rejects bad R/t/equation/missing')
+
+
 def test_py_compile():
     for path in (ARM_BRIDGE, HERE / 'handeye_capture.py',
-                 HERE / 'solve_handeye.py', HERE / 'selftest.py'):
+                 HERE / 'solve_handeye.py', HERE / 'test_handeye.py',
+                 HERE / 'selftest.py'):
         assert path.is_file(), f'missing {path}'
         py_compile.compile(str(path), doraise=True)
         print(f'PASS py_compile: {path.name}')
 
 
 def main():
-    print('T004/T005 selftest (no ROS, no camera, no detector)')
+    print('T004-T006 selftest (no ROS, no camera, no detector)')
     test_procrustes_exact()
     test_procrustes_noisy()
     test_pairs_path()
     test_targets()
     test_target_dot_ux()
     test_undistort()
+    test_t006_roundtrip()
+    test_t006_lift()
+    test_t006_spd()
+    test_t006_yaml()
     test_py_compile()
-    print('RESULT: PASS — all T004/T005 selftests green')
+    print('RESULT: PASS — all T004-T006 selftests green')
     return 0
 
 

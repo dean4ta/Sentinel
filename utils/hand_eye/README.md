@@ -31,6 +31,10 @@ package or one pip install.
   and auto-runs the solver -> `handeye.yaml`.
 - `solve_handeye.py` — standalone: `python3 solve_handeye.py pairs.json
   [out.yaml]`. Core `solve_rigid(src, dst)` needs no ROS/camera.
+- `test_handeye.py` — T006 verification (Orin, ROS2): visits the 12
+  targets via `arm/ee_goals` (bridge T:1041 end-effector moves),
+  default 10 mm lift above the board along the grid normal. Needs the
+  bridge built with the T006 `arm/ee_goals` subscription.
 - `selftest.py` — Mac-side checks, no ROS/camera/detector.
 - `grid_5x4_tag36h11_ids18-37.json` — grid layout for target generation.
 
@@ -38,6 +42,11 @@ package or one pip install.
 
 - The capture tool never moves the arm and never opens the serial
   port.
+- `test_handeye.py` (T006) DOES move the arm — its first run is the
+  first autonomous arm motion. Keep clear of the arm and board; Q or
+  Ctrl+C stops immediately (the arm holds its pose, torque stays
+  locked — the script never releases torque). It stops after the
+  first unreached target.
 - `SIGKILL` cannot be caught: if the script is SIGKILLed while torque
   is released the arm stays limp — re-lock manually with
   `ros2 service call arm/torque sentinel_msgs/srv/SetTorque

@@ -4,6 +4,9 @@
 # quaternion), and accepts arm/joint_goals (JointState -> per-joint
 # T:101 move commands).
 #
+# arm/ee_goals (PoseStamped) -> T:1041 XYZ direct moves in
+# end-effector space (see _ee_goal_cb).
+#
 # Opening the serial port resets the ESP32 (DTR/RTS assert on open), so
 # the boot/init chatter (~8 s, arm moves to init pose) is drained before
 # any command goes out. Joints: base=1 shoulder=2 elbow=3 clamp(EOAT)=4.
@@ -38,6 +41,12 @@ class ArmBridge(Node):
         # non-empty: an empty list default would infer BYTE_ARRAY in
         # rclpy and reject double-array overrides.
         self.declare_parameter('home', [0.0, 0.0, 0.0, 0.0])
+        # T:1041 moves from arm/ee_goals (x/y/z mm + yaw t rad). The
+        # repo docs do not document T:1041 spd/acc units — assumed to
+        # be the same scale as the T:101 spd/acc and the existing
+        # T:1041 home move below (200/40).
+        self.declare_parameter('ee_spd', 200)
+        self.declare_parameter('ee_acc', 40)
 
         port = self.get_parameter('port').value
         baud = self.get_parameter('baud').value
@@ -46,6 +55,7 @@ class ArmBridge(Node):
         self.ser.rts = False
         self.write_lock = threading.Lock()
         self.ready = False  # arm answered a pose read (boot done)
+        self._last_not_ready_warn = 0.0  # rate limit for ee_goals warns
 
         # RX thread: drains the boot sequence, then parses feedback.
         self.rx_thread = threading.Thread(target=self._rx_loop,
@@ -58,6 +68,8 @@ class ArmBridge(Node):
             PoseStamped, 'arm/ee_pose', 10)
         self.goal_sub = self.create_subscription(
             JointState, 'arm/joint_goals', self._goal_cb, 10)
+        self.ee_goal_sub = self.create_subscription(
+            PoseStamped, 'arm/ee_goals', self._ee_goal_cb, 10)
         self.torque_srv = self.create_service(
             SetTorque, 'arm/torque', self._torque_cb)
         rate = self.get_parameter('read_rate').value
@@ -166,6 +178,45 @@ class ArmBridge(Node):
                 self._write(
                     f'{{"T":101,"joint":{JOINT_IDS[name]},'
                     f'"rad":{rad},"spd":{spd},"acc":{acc}}}')
+
+    def _ee_goal_cb(self, msg):
+        # arm/ee_goals (geometry_msgs/PoseStamped): T:1041 XYZ direct
+        # move in END-EFFECTOR space. position x/y/z are mm; t (rad) is
+        # the yaw recovered from the message quaternion with the SAME
+        # euler convention _publish_ee_pose uses (roll=0, pitch=0,
+        # yaw=t about the arm z axis, w=cos(t/2), z=sin(t/2)):
+        # t = 2*atan2(qz, qw) wrapped to [-pi, pi]. A goal carrying the
+        # bridge's own arm/ee_pose quaternion therefore commands the
+        # exact pose it was read from (round-trip consistent).
+        # Non-yaw quaternion components are ignored.
+        #
+        # spd/acc come from the 'ee_spd'/'ee_acc' node params (defaults
+        # 200/40, same scale as the T:1041 home move), NOT from the
+        # message. T:1041 spd/acc units are undocumented in the repo;
+        # assumed to be the same scale as T:101 spd/acc.
+        #
+        # T:1041 is a motion command, so it re-locks torque (see
+        # _torque_cb): a goal published after a torque release
+        # re-enables the motors and moves the arm.
+        if not self.ready:
+            now = time.time()
+            if now - self._last_not_ready_warn >= 1.0:
+                self.get_logger().warn(
+                    'ignoring arm/ee_goals — arm not ready yet '
+                    '(boot drain still running)')
+                self._last_not_ready_warn = now
+            return
+        qz = min(1.0, max(-1.0, float(msg.pose.orientation.z)))
+        qw = min(1.0, max(-1.0, float(msg.pose.orientation.w)))
+        yaw = 2.0 * math.atan2(qz, qw)
+        yaw = math.atan2(math.sin(yaw), math.cos(yaw))  # wrap to [-pi, pi]
+        spd = self.get_parameter('ee_spd').value
+        acc = self.get_parameter('ee_acc').value
+        self._write(json.dumps(
+            {'T': 1041, 'x': float(msg.pose.position.x),
+             'y': float(msg.pose.position.y),
+             'z': float(msg.pose.position.z),
+             't': yaw, 'spd': spd, 'acc': acc}))
 
     def _torque_cb(self, req, resp):
         # T:210: cmd:0 releases the motors (hand-guiding / manual teach),
