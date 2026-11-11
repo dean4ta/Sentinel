@@ -1,0 +1,4 @@
+# Sentinel 1 T003 camera calibration (Orin Nano, Ubuntu 22.04, aarch64)
+numpy            # array math (already present on the Orin, listed for completeness)
+opencv-python    # capture, calibration math, GUI windows (already present on the Orin)
+dt-apriltags>=3.1.7  # tag36h11 detector with a manylinux2014 aarch64 wheel
