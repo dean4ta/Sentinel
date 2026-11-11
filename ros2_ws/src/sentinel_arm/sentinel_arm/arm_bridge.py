@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 # RoArm-M2-S serial <-> ROS bridge. One node: publishes arm/joint_states
-# (from T:105 pose reads) and accepts arm/joint_goals (JointState ->
-# per-joint T:101 move commands).
+# (from T:105 pose reads) and arm/ee_pose (T:1051 x/y/z in mm plus yaw
+# quaternion), and accepts arm/joint_goals (JointState -> per-joint
+# T:101 move commands).
 #
 # Opening the serial port resets the ESP32 (DTR/RTS assert on open), so
 # the boot/init chatter (~8 s, arm moves to init pose) is drained before
 # any command goes out. Joints: base=1 shoulder=2 elbow=3 clamp(EOAT)=4.
 
 import json
+import math
 import threading
 import time
 
 import serial
 import rclpy
 from rclpy.node import Node
+from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import JointState
 from sentinel_msgs.srv import SetTorque
 
@@ -51,6 +54,8 @@ class ArmBridge(Node):
 
         self.state_pub = self.create_publisher(
             JointState, 'arm/joint_states', 10)
+        self.ee_pub = self.create_publisher(
+            PoseStamped, 'arm/ee_pose', 10)
         self.goal_sub = self.create_subscription(
             JointState, 'arm/joint_goals', self._goal_cb, 10)
         self.torque_srv = self.create_service(
@@ -118,6 +123,33 @@ class ArmBridge(Node):
         msg.name = JOINT_NAMES
         msg.position = [float(d.get(k, 0.0)) for k in 'b s e t'.split()]
         self.state_pub.publish(msg)
+        self._publish_ee_pose(d, msg.header.stamp)
+
+    def _publish_ee_pose(self, d, stamp):
+        # End-effector pose from the T:1051 x/y/z fields (mm) and t (rad).
+        #
+        # Yaw-convention ASSUMPTION (verify on the robot): the repo docs
+        # (docs/arm_teach_repeat_plan.md, T:1041 home comment) pin only
+        # "x,y,z mm + t rad" — they do not document the axis t rotates
+        # about. We assume the RoArm T:1041/T:1051 frame is x forward,
+        # y left, z up, and t is yaw about that z axis. The orientation
+        # is therefore the euler quaternion (roll=0, pitch=0, yaw=t),
+        # with yaw wrapped to [-pi, pi] and the quaternion components
+        # clamped to [-1, 1] so TF consumers never see an out-of-range w.
+        pose = PoseStamped()
+        pose.header.stamp = stamp
+        # RoArm fixed base frame (x fwd, y left, z up per T:1041 XYZ).
+        pose.header.frame_id = 'arm_base_link'
+        pose.pose.position.x = float(d.get('x', 0.0))
+        pose.pose.position.y = float(d.get('y', 0.0))
+        pose.pose.position.z = float(d.get('z', 0.0))
+        yaw = math.atan2(math.sin(float(d.get('t', 0.0))),
+                         math.cos(float(d.get('t', 0.0))))
+        w = min(1.0, max(-1.0, math.cos(yaw / 2.0)))
+        z = min(1.0, max(-1.0, math.sin(yaw / 2.0)))
+        pose.pose.orientation.w = w
+        pose.pose.orientation.z = z
+        self.ee_pub.publish(pose)
 
     # --- ROS callbacks ---
 
