@@ -7,6 +7,7 @@
   <maintainer email="dean@example.com">Dean Fortier</maintainer>
   <license>MIT</license>
 
+  <depend>geometry_msgs</depend>
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
   <depend>sentinel_msgs</depend>

@@ -214,9 +214,31 @@ def test_undistort():
             path.write_text(sh.plain_yaml(data))
         loaded = hc.load_camera_matrix(path)
         assert loaded is not None, 'synthetic yaml should load'
-        kk, dd = loaded
+        kk, dd, size = loaded
         assert np.allclose(kk, k), 'camera_matrix mismatch'
         assert np.allclose(dd, dist), 'dist_coeffs mismatch'
+        assert size == (1280, 720), 'image_size mismatch'
+        # K scaling for a capture resolution != calibration (minor-01):
+        # fx/cx scale with the width ratio, fy/cy with the height ratio.
+        scaled = hc.scale_intrinsics(kk, (1280, 720), (640, 480))
+        assert np.isclose(scaled[0, 0], 350.0), 'fx must scale 0.5x'
+        assert np.isclose(scaled[0, 2], 320.0), 'cx must scale 0.5x'
+        assert np.isclose(scaled[1, 1], 700.0 * 2.0 / 3.0), 'fy scale'
+        assert np.isclose(scaled[1, 2], 360.0 * 2.0 / 3.0), 'cy scale'
+        assert np.allclose(scaled[2], kk[2]), 'third row untouched'
+        same = hc.scale_intrinsics(kk, (1280, 720), (1280, 720))
+        assert np.allclose(same, kk), 'equal resolution must not scale'
+        # A yaml without image_size yields size None (no scaling check).
+        del data['image_size']
+        path2 = Path(tmp) / 'no_size.yaml'
+        try:
+            import yaml
+            path2.write_text(yaml.safe_dump(data))
+        except ImportError:
+            path2.write_text(sh.plain_yaml(data))
+        kk2, dd2, size2 = hc.load_camera_matrix(path2)
+        assert size2 is None and np.allclose(kk2, k) \
+            and np.allclose(dd2, dist)
         maps = hc.build_undistort_maps(kk, dd, (320, 240))
         # Gradient image: remap must change it (non-identity) and keep
         # the shape.

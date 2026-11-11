@@ -262,11 +262,12 @@ def center_homography(grid_tags, detections, min_tags=MIN_TAGS_FOR_DOTS):
 
 
 def load_camera_matrix(path):
-    """Load (camera_matrix, dist_coeffs) from a T003 camera_matrix.yaml.
+    """Load (camera_matrix, dist_coeffs, image_size) from a T003
+    camera_matrix.yaml (image_size may be None when absent).
 
-    Returns (K (3,3), dist (k,)) or None when the file is missing,
-    unreadable, or lacks the keys — with a WARN on stderr (the caller
-    then continues with raw frames)."""
+    Returns None when the file is missing, unreadable, or lacks the
+    keys — with a WARN on stderr (the caller then continues with raw
+    frames)."""
     p = Path(path)
     if not p.is_file():
         print(f'WARN: camera matrix {p} not found — continuing with RAW '
@@ -280,11 +281,30 @@ def load_camera_matrix(path):
             raise ValueError('missing camera_matrix/dist_coeffs keys')
         k = np.asarray(data['camera_matrix'], dtype=float).reshape(3, 3)
         dist = np.asarray(data['dist_coeffs'], dtype=float).ravel()
-        return k, dist
+        size = data.get('image_size')
+        if size is not None:
+            size = (int(size[0]), int(size[1]))
+        return k, dist, size
     except (OSError, ValueError, ImportError, TypeError) as exc:
         print(f'WARN: cannot read {p}: {exc} — continuing with RAW '
               'frames (undistort off)', file=sys.stderr)
         return None
+
+
+def scale_intrinsics(k, calib_wh, capture_wh):
+    """Scale a calibration K to a different capture resolution.
+
+    Standard practice: fx and cx scale with the width ratio, fy and cy
+    with the height ratio. Returns the same K when the sizes match."""
+    cw, ch = calib_wh
+    w, h = capture_wh
+    sx, sy = float(w) / float(cw), float(h) / float(ch)
+    kk = k.copy()
+    kk[0, 0] *= sx
+    kk[0, 2] *= sx
+    kk[1, 1] *= sy
+    kk[1, 2] *= sy
+    return kk
 
 
 def build_undistort_maps(k, dist, size_wh):
@@ -352,7 +372,7 @@ def draw_targets(view, px_targets, n_recorded, current):
 
 
 def draw_control(view, n_recorded, targets, node, undistort_mode,
-                 torque_warning):
+                 torque_warning, undistort_warning=None):
     """Counter + target label + freshness + undistort + instructions."""
     out = view.copy()
     lines = [f'recorded {n_recorded}/12']
@@ -373,6 +393,8 @@ def draw_control(view, n_recorded, targets, node, undistort_mode,
     else:
         lines.append(f'joint states: STALE ({js_age:.1f}s)')
     lines.append(f'undistort: {undistort_mode}')
+    if undistort_warning:
+        lines.append(undistort_warning)
     if torque_warning:
         lines.append('TORQUE SERVICE UNAVAILABLE — release arm by hand')
     lines.append('SPACE record, R re-record last, Q quit')
@@ -452,11 +474,29 @@ def snapshot_pose(node):
     return (float(p.x), float(p.y), float(p.z)), None
 
 
-def _sigint_handler(signum, frame):  # pragma: no cover
+TERMINATION_SIGNALS = (
+    (signal.SIGINT, 'SIGINT'),
+    (signal.SIGTERM, 'SIGTERM'),
+    (signal.SIGHUP, 'SIGHUP'),
+)
+
+
+def _make_signal_handler(name):  # pragma: no cover — runs on the Orin
     # rclpy's default SIGINT handler shuts the context down before the
-    # finally can re-lock torque; raise instead so the finally runs
-    # while rclpy is still alive.
-    raise KeyboardInterrupt
+    # finally can re-lock torque; raise KeyboardInterrupt instead so
+    # the finally runs while rclpy is still alive. Registered for
+    # SIGINT, SIGTERM and SIGHUP so a kill / terminal close takes the
+    # same re-lock path. (SIGKILL cannot be caught — see README.md.)
+    def handler(signum, frame):
+        print(f'{name} received — exiting '
+              '(torque will be re-locked)', file=sys.stderr)
+        raise KeyboardInterrupt
+    return handler
+
+
+def install_signal_handlers():  # pragma: no cover — runs on the Orin
+    for sig, name in TERMINATION_SIGNALS:
+        signal.signal(sig, _make_signal_handler(name))
 
 
 def write_pairs(pairs, outdir, path_name='pairs.json'):
@@ -514,7 +554,9 @@ def main(argv=None):
         return 2
     if Detector is None:
         print('ERROR: dt-apriltags is not installed on the Orin '
-              '(run: pip3 install -r requirements.txt)', file=sys.stderr)
+              "(run: pip3 install 'dt-apriltags>=3.1.7' — full dependency "
+              'list in the README.md next to this script)',
+              file=sys.stderr)
         return 2
 
     grid_path = Path(args.grid) if args.grid else \
@@ -554,8 +596,18 @@ def main(argv=None):
     cam = load_camera_matrix(args.camera_matrix)
     maps = None
     undistort_mode = 'RAW'
+    undistort_warning = None
     if cam is not None:
-        k, dist = cam
+        k, dist, calib_size = cam
+        if calib_size is not None and tuple(calib_size) != (width, height):
+            # Capture resolution differs from the calibration
+            # resolution: scale K before undistorting (standard
+            # practice) and tell the user.
+            undistort_warning = (f'capture {width}x{height} != calibrated '
+                                 f'{calib_size[0]}x{calib_size[1]} — K '
+                                 'scaled; consider capturing at 1280x720')
+            print(f'WARN: {undistort_warning}', file=sys.stderr)
+            k = scale_intrinsics(k, calib_size, (width, height))
         try:
             maps = build_undistort_maps(k, dist, (width, height))
         except cv2.error as exc:
@@ -563,7 +615,7 @@ def main(argv=None):
                   'continuing with RAW frames', file=sys.stderr)
             maps = None
         if maps is not None:
-            undistort_mode = 'ON'
+            undistort_mode = 'ON (scaled K)' if undistort_warning else 'ON'
             print(f'undistort ON ({args.camera_matrix})')
     if maps is None:
         print('undistort OFF — RAW frames (see warning above)')
@@ -580,7 +632,7 @@ def main(argv=None):
 
     # --- ROS startup (only after the camera is live) ---
     rclpy.init()
-    signal.signal(signal.SIGINT, _sigint_handler)
+    install_signal_handlers()
     node = HandEyeCaptureNode()
     torque_warning = None
     detector = Detector(families='tag36h11', quad_decimate=1.0)
@@ -635,7 +687,8 @@ def main(argv=None):
                             (0, 0, 255), 2)
 
             control = draw_control(frame, len(recorded), targets, node,
-                                   undistort_mode, torque_warning)
+                                   undistort_mode, torque_warning,
+                                   undistort_warning)
             cv2.imshow('detections', overlay)
             cv2.imshow('control', control)
             key = cv2.waitKey(1) & 0xFF
@@ -687,8 +740,20 @@ def main(argv=None):
     except KeyboardInterrupt:
         print('interrupted')
     finally:
-        # Safety: ALWAYS re-lock torque, on every exit path.
-        ok, msg = node.torque(True)
+        # Safety: ALWAYS re-lock torque, on every exit path. Mask
+        # SIGINT/SIGTERM/SIGHUP while the re-lock runs so a second
+        # Ctrl+C or kill cannot skip it and leave the arm limp without
+        # the manual-recovery message below.
+        saved = {}
+        for sig, _ in TERMINATION_SIGNALS:
+            saved[sig] = signal.signal(sig, signal.SIG_IGN)
+        try:
+            ok, msg = node.torque(True)
+        except Exception as exc:  # pragma: no cover
+            ok, msg = False, f'torque re-lock raised: {exc}'
+        finally:
+            for sig, prev in saved.items():
+                signal.signal(sig, prev)
         if ok:
             print('torque re-locked')
         else:
