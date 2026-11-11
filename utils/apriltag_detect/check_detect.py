@@ -31,8 +31,13 @@ the top-left corner of tag 0, x right, y down, with size_in including the
 1-cell white quiet zone. The webcam sees a perspective view of a ground
 plane, so a homography maps detected centers (px) to JSON centers (in);
 the worst reprojection error is the layout-agreement metric. Pass
-tolerance: worst error < 2% of printed tag side in pixels, or < 0.1 in
-equivalent.
+tolerance: worst error < min(2% of printed tag side, 0.1 in), the
+stricter of the task card's two bounds ("< 2% of tag side in px, or
+< 0.1 in equivalent"). The 2% bound governs for every shipped tag side
+(1.8667/2.5/3.3333 in), so the "or" cannot loosen it. A second scale
+assertion checks the median detected quad side against the expected
+black-border size (+-5%), which the homography fit would otherwise
+absorb.
 
 Measured convention (verified empirically against this script's renderer):
 pupil-apriltags detection corners lie on the outer edge of the tag's
@@ -60,9 +65,12 @@ except ImportError:  # pragma: no cover - exercised only without the dep
     Detector = None
 
 _WORKTREE_UTILS = Path(__file__).resolve().parents[1]
-if str(_WORKTREE_UTILS) not in sys.path:
-    sys.path.insert(0, str(_WORKTREE_UTILS))
-from apriltag_grid_gen.tag36h11 import BIT_X, BIT_Y, TAG36H11_CODES  # noqa: E402
+_GRID_GEN = _WORKTREE_UTILS / "apriltag_grid_gen"
+for _p in (str(_WORKTREE_UTILS), str(_GRID_GEN)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+# Single source of truth for tag rendering: the T001 generator module.
+from gen_grids import render_tag  # noqa: E402
 
 DEFAULT_JSON = (
     Path(__file__).resolve().parents[2]
@@ -75,36 +83,9 @@ DEFAULT_JSON = (
 QUIET_ZONE_FRACTION = 0.8
 
 
-def render_tag(tag_id, cell_px):
-    """Render one tag as an L-mode PIL image of (10*cell_px) square pixels.
-
-    Mirrors utils/apriltag_grid_gen/gen_grids.py:render_tag: outer 1-cell
-    white quiet zone, 1-cell black border, 6x6 data area. Data bit i of
-    the codeword (bit 0 = MSB) maps to full-tag cell (BIT_X[i]+1,
-    BIT_Y[i]+1); bit 1 = white, bit 0 = black.
-    """
-    code = TAG36H11_CODES[tag_id]
-    size = 10 * cell_px
-    im = Image.new("L", (size, size), 255)
-    px = im.load()
-    draw = ImageDraw.Draw(im)
-    draw.rectangle([cell_px, cell_px, 9 * cell_px - 1, 2 * cell_px - 1], fill=0)
-    draw.rectangle([cell_px, 8 * cell_px, 9 * cell_px - 1, 9 * cell_px - 1], fill=0)
-    draw.rectangle([cell_px, cell_px, 2 * cell_px - 1, 9 * cell_px - 1], fill=0)
-    draw.rectangle([8 * cell_px, cell_px, 9 * cell_px - 1, 9 * cell_px - 1], fill=0)
-    for i in range(36):
-        bit = (code >> (35 - i)) & 1
-        v = 255 if bit else 0
-        x0 = (BIT_X[i] + 1) * cell_px
-        y0 = (BIT_Y[i] + 1) * cell_px
-        for dy in range(cell_px):
-            for dx in range(cell_px):
-                px[x0 + dx, y0 + dy] = v
-    return im
-
-
 def load_grid(json_path):
-    """Return (expected_id_set, {id: (x_in, y_in)}, tag_side_in)."""
+    """Return (expected_id_set, {id: (x_in, y_in)}, tag_side_in, rows,
+    cols)."""
     data = json.loads(Path(json_path).read_text())
     if not data["meta"].get("size_in_includes_quiet_zone", False):
         raise ValueError(
@@ -114,7 +95,7 @@ def load_grid(json_path):
     centers = {t["id"]: (t["center"]["x_in"], t["center"]["y_in"])
                for t in data["tags"]}
     side = data["tags"][0]["size_in"]
-    return expected, centers, side
+    return expected, centers, side, data["meta"]["rows"], data["meta"]["cols"]
 
 
 def load_gray(image_path):
@@ -195,8 +176,9 @@ def annotate(rgb, detections, matched_ids, centers_in, h_inv, out_path):
 
 def run_check(gray, json_path, out_path, label=""):
     """Full check pipeline on a grayscale array. Returns True iff PASS."""
-    expected, centers_in, tag_side_in = load_grid(json_path)
-    print(f"grid json: {json_path} — {len(expected)} expected tags, "
+    expected, centers_in, tag_side_in, rows, cols = load_grid(json_path)
+    print(f"grid json: {json_path} — {rows}x{cols} grid, "
+          f"{len(expected)} expected tags, "
           f"tag side {tag_side_in:g} in (incl. quiet zone)")
     if label:
         print(f"image: {label} ({gray.shape[1]}x{gray.shape[0]})")
@@ -236,30 +218,48 @@ def run_check(gray, json_path, out_path, label=""):
         worst_i = int(np.argmax(err_in))
         worst_in = err_in[worst_i]
         worst_px = err_px[worst_i]
-        thr_in = 0.02 * tag_side_in
-        thr_px = 0.02 * tag_side_in * px_per_in
-        ok_layout = (worst_px < thr_px) or (worst_in < 0.1)
-        crit = "2% tag side" if worst_px < thr_px else "0.1 in"
+        # Layout tolerance per the task card: "< 2% of tag side in px,
+        # or < 0.1 in equivalent", implemented as the stricter of the
+        # two bounds, min(2% of side, 0.1 in). For every shipped tag
+        # side 2% of side is below 0.1 in, so the 2% bound governs; the
+        # "or" cannot loosen the stricter bound (see handoff T002.md).
+        pct_in = 0.02 * tag_side_in
+        thr_in = min(pct_in, 0.1)
+        thr_px = thr_in * px_per_in
+        ok_layout = worst_in < thr_in
+        governs = "2% of tag side" if pct_in <= 0.1 else "0.1 in"
+        verdict = "met" if ok_layout else "FAILED"
         results.append(("layout agreement", ok_layout,
                         f"worst reprojection {worst_in:.4f} in "
                         f"({worst_px:.2f} px) on id={matched[worst_i]}; "
-                        f"tolerance {thr_px:.2f} px (< 2% of tag side) "
-                        f"or < 0.1 in — met via {crit}"))
+                        f"tolerance {thr_in:.4f} in ({thr_px:.2f} px) = "
+                        f"min(2% of {tag_side_in:g} in side "
+                        f"[{pct_in:.4f} in], 0.1 in); governing bound "
+                        f"{governs} — {verdict}"))
+        # Scale sanity: detected quad size vs expected black border. The
+        # homography absorbs uniform scale, so this is the assertion that
+        # catches a mis-scaled print (e.g. fit-to-page instead of 100%).
         sides = [quad_sides(det_by_id[i]) for i in matched]
         med_side = float(np.median(sides))
         exp_side = QUIET_ZONE_FRACTION * tag_side_in * px_per_in
+        ratio = med_side / exp_side
+        ok_scale = abs(ratio - 1.0) <= 0.05
+        results.append(("tag scale", ok_scale,
+                        f"quad side {med_side:.1f} px vs expected black "
+                        f"border {exp_side:.1f} px, ratio {ratio:.3f} "
+                        f"(tolerance +-5%: 0.950-1.050)"))
         margins = [det_by_id[i].decision_margin for i in matched]
         print(f"reprojection: worst {worst_in:.4f} in ({worst_px:.2f} px), "
               f"mean {err_in.mean():.4f} in, median "
               f"{float(np.median(err_in)):.4f} in")
         print(f"scale: {px_per_in:.1f} px/in (x {px_per_in_x:.1f}, "
               f"y {px_per_in_y:.1f})")
-        print(f"quad side: median {med_side:.1f} px vs expected black border "
-              f"{exp_side:.1f} px (ratio {med_side / exp_side:.3f})")
         print(f"decision margin: min {min(margins):.1f} "
               f"(median {float(np.median(margins)):.1f})")
     else:
         results.append(("layout agreement", False,
+                        "skipped: homography fit failed"))
+        results.append(("tag scale", False,
                         "skipped: homography fit failed"))
 
     passed = True
@@ -307,7 +307,7 @@ def selftest():
 def synth_grid(json_path, warp):
     """Render the JSON grid as a small image (optionally warped), then run
     the full check pipeline against the same JSON."""
-    expected, centers_in, tag_side_in = load_grid(json_path)
+    expected, centers_in, tag_side_in, rows, cols = load_grid(json_path)
     cell = 12
     tag_px = 10 * cell
     px_per_in = tag_px / tag_side_in
@@ -335,11 +335,11 @@ def synth_grid(json_path, warp):
         sy = np.clip(np.round(s[:, 1]).astype(int), 0, h - 1)
         src_arr = np.asarray(canvas, dtype=np.uint8)
         gray = src_arr[sy, sx].reshape(h, w)
-        label = f"synthetic 5x4 grid, perspective-warped"
+        label = f"synthetic {rows}x{cols} grid, perspective-warped"
         out = Path(tempfile.gettempdir()) / "syntest_warp_detected.png"
     else:
         gray = np.asarray(canvas, dtype=np.uint8)
-        label = "synthetic 5x4 grid, flat"
+        label = f"synthetic {rows}x{cols} grid, flat"
         out = Path(tempfile.gettempdir()) / "syntest_flat_detected.png"
     print(f"== synthetic grid test: {label} ({w}x{h}) ==")
     return run_check(gray, json_path, out, label)

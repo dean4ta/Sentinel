@@ -17,6 +17,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -61,9 +62,23 @@ def main():
     check("wrong-board loud id report",
           "CHECK unexpected: FAIL" in out and "false positives [5]" in out,
           f"out={out!r}")
-    check("wrong-board annotated PNG written",
-          (WORK / "wrongboard_id5_detected.png").exists(),
-          f"out={out!r}")
+    # Pixel-level assert on the annotated PNG (not just existence): the
+    # wrong-board tag is not in the expected set, so its box is drawn
+    # orange (255,140,0) and its center dot red (220,0,0). Count exact
+    # color pixels to prove boxes and centers were actually drawn.
+    ann_png = WORK / "wrongboard_id5_detected.png"
+    exists = ann_png.exists()
+    orange = red = -1
+    if exists:
+        ann_arr = np.asarray(Image.open(ann_png).convert("RGB"),
+                             dtype=np.uint8)
+        orange = int(np.sum(np.all(ann_arr == [255, 140, 0], axis=2)))
+        red = int(np.sum(np.all(ann_arr == [220, 0, 0], axis=2)))
+    check("wrong-board annotated PNG written", exists, f"out={out!r}")
+    check("wrong-board annotated box pixels (orange)",
+          orange > 20, f"orange px={orange} out={out!r}")
+    check("wrong-board annotated center pixels (red)",
+          red > 0, f"red px={red} out={out!r}")
 
     # 2. Missing image path argument: argparse usage error, exit code 2.
     code, out = run_cli()
