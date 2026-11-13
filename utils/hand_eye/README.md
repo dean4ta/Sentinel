@@ -20,8 +20,8 @@ package or one pip install.
 - A running arm bridge: `ros2 launch sentinel_arm arm_teach.launch.py`
   (provides `arm/ee_pose`, `arm/joint_states`, `arm/torque`)
 - The C270 at `/dev/sentinel_webcam` (1280x720) and the T003
-  `~/dean/camera_calibration/camera_matrix.yaml` (optional: missing
-  file -> raw frames with a warning)
+  `/home/sentinel1/dean/Sentinel/camera_calibration/camera_matrix.yaml`
+  (optional: missing file -> raw frames with a warning)
 
 ## Files
 
