@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""T007 selftest — Mac-side, no ROS, no camera, no detector.
+"""T007/T008 selftest — Mac-side, no ROS, no camera, no detector.
 
 Exercises the importable core of grasp_demo.py (the ROS node class is
 guarded behind the rclpy import, so this runs in plain Python):
@@ -19,20 +19,32 @@ guarded behind the rclpy import, so this runs in plain Python):
      order and the run COMPLETES; each failed action logs a WARN naming
      the stage; closed_ref is logged from the read-back; GRASP commands
      the direct grasp_clamp_rad (2.686); GRASP deltas are vs the OPEN
-     row; EE goal calls are hover/descend/hover/home with the home yaw;
-     DESCEND and LIFT also run the settle check (wait_settled), whose
-     failure WARNs and continues
+     row; EE goal calls are hover(60 mm)/descend/hover(60 mm)/home with
+     the home yaw; DESCEND and LIFT also run the settle check
+     (wait_settled), whose failure WARNs and continues
   5. Sequence success path: reached notes, no WARNs
   6. Clamp-stall harness: close/open stall -> read-back logged short
      of cmd, GRASP still commands grasp_clamp_rad directly, run still
      completes
   7. CSV writer: header + row count + empty cells for None
-  8. py_compile + py310-grammar (ast feature_version=(3, 10)) on
+  8. T008 live localization (pure math, no camera): synthetic PnP
+     round-trip (projectPoints from a known grid->cam pose, solvePnP
+     recovers it within tolerance, behind-camera/degenerate -> None);
+     T_cam_in_arm composition (cam->arm->grid chain round-trips and
+     equals inv(handeye) @ inv(pnp)); moved-grid simulation (two
+     different cam_T_grid -> two DIFFERENT target_arm, the second
+     equals the chain result, the first equals the static handeye
+     target); trigger freshness gate (fresh live -> live, stale/none ->
+     static fallback + WARN reason); live normal direction + sign
+     logic for both live paths
+  9. py_compile + py310-grammar (ast feature_version=(3, 10)) on
      grasp_demo.py, arm_bridge.py, this file, the launch file and both
      edited setup.py files — MANDATORY: the Orin runs python3.10
-  9. Topic-rename check: cmd_vel_serial.cpp publishes
+ 10. Topic-rename check: cmd_vel_serial.cpp publishes
      /gripper_pressure_reading (the old "/gripper" publisher is gone)
      and grasp_demo.py subscribes the new name
+ 11. hover_z default 60.0 in grasp_demo.py (the T008 change; the old
+     30.0 must be gone)
 
 Exit codes: 0 all pass, 1 a check failed.
 """
@@ -46,6 +58,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 HERE = Path(__file__).resolve().parent          # .../sentinel_arm/test
@@ -73,7 +86,7 @@ PARAMS = {
     'clamp_open_rad': 1.859,
     'clamp_tol': 0.05,
     'grasp_clamp_rad': 2.686,
-    'hover_z': 30.0,
+    'hover_z': 60.0,   # T008: 30 -> 60 mm
     'descend_z': 10.0,
     'reach_tol': 25.0,
     'reach_timeout': 10.0,
@@ -189,9 +202,9 @@ def test_handeye_roundtrip():
     # z-lift: hovering changes ONLY the grid-normal component by hover_z
     n = gd.lift_direction(r)[0]
     assert abs(np.linalg.norm(n) - 1.0) < 1e-9, 'normal must be unit'
-    hover_grid = gd.arm_to_grid(arm + 30.0 * n, r, t)
+    hover_grid = gd.arm_to_grid(arm + PARAMS['hover_z'] * n, r, t)
     delta = hover_grid - grid_mm
-    assert np.allclose(delta, [0.0, 0.0, 30.0], atol=1e-6), \
+    assert np.allclose(delta, [0.0, 0.0, PARAMS['hover_z']], atol=1e-6), \
         f'lift must be pure grid +z: {delta}'
     print('PASS handeye round-trip + z-lift')
 
@@ -286,11 +299,11 @@ def test_sequence_all_timeouts():
     assert env.joint_calls == [3.140, 1.859, 2.686]
     assert len(env.ee_calls) == 4
     assert np.allclose(env.ee_calls[0][0],
-                       target + 30.0 * normal, atol=1e-6)
+                       target + PARAMS['hover_z'] * normal, atol=1e-6)
     assert np.allclose(env.ee_calls[1][0],
                        target + 10.0 * normal, atol=1e-6)
     assert np.allclose(env.ee_calls[2][0],
-                       target + 30.0 * normal, atol=1e-6)
+                       target + PARAMS['hover_z'] * normal, atol=1e-6)
     assert env.ee_calls[3][0] == (3.28, -47.44, 69.38), 'home xyz'
     assert env.ee_calls[3][1] == 3.134, 'home yaw'
     # settle check runs after DESCEND and LIFT only (the vacuous-reach
@@ -376,6 +389,167 @@ def test_csv_writer():
     print('PASS csv writer')
 
 
+def _synthetic_pnp_case():
+    """A known grid->cam pose: real grid JSON tag corners (black-border
+    at 0.8 x side, inches) projected through a synthetic K + dist.
+    Returns (obj_in (M,2), img_px (M,2), k, dist, t_grid_in_cam)."""
+    k = np.array([[600.0, 0.0, 320.0],
+                  [0.0, 600.0, 240.0],
+                  [0.0, 0.0, 1.0]])
+    dist = np.zeros(5)
+    # board roughly 520 mm in front of the camera, tilted ~23 deg x
+    # and ~15 deg y — a plausible over-the-table view
+    ry = np.array([[math.cos(0.15), 0.0, math.sin(0.15)],
+                   [0.0, 1.0, 0.0],
+                   [-math.sin(0.15), 0.0, math.cos(0.15)]])
+    rx = np.array([[1.0, 0.0, 0.0],
+                   [0.0, math.cos(0.4), -math.sin(0.4)],
+                   [0.0, math.sin(0.4), math.cos(0.4)]])
+    r = ry @ rx
+    t = np.array([-40.0, 30.0, 520.0])
+    t_grid_in_cam = gd.tf4(r, t)
+    grid = gd.load_grid(str(GRID_JSON))
+    obj_in, obj_mm = [], []
+    for tid in sorted(grid)[:6]:  # 6 tags x 4 corners = 24 points
+        cx, cy, side = grid[tid]
+        for (x, y) in gd.tag_object_corners(cx, cy, side):
+            obj_in.append((x, y))
+            obj_mm.append((x * 25.4, y * 25.4, 0.0))
+    obj_mm = np.array(obj_mm, dtype=float)
+    img, _ = cv2.projectPoints(obj_mm, cv2.Rodrigues(r)[0], t, k, dist)
+    return obj_in, img.reshape(-1, 2), k, dist, t_grid_in_cam
+
+
+def test_pnp_roundtrip():
+    # synthetic PnP round-trip: projectPoints from a known grid->cam
+    # pose, then solvePnP must recover that pose within tolerance.
+    obj_in, img, k, dist, t_true = _synthetic_pnp_case()
+    t_est = gd.pnp_grid_pose(obj_in, img, k, dist)
+    assert t_est is not None, 'synthetic PnP must succeed'
+    err_t = float(np.linalg.norm(t_est[:3, 3] - t_true[:3, 3]))
+    cosang = float(np.clip(
+        (np.trace(t_est[:3, :3].T @ t_true[:3, :3]) - 1.0) / 2.0,
+        -1.0, 1.0))
+    err_r = math.degrees(math.acos(cosang))
+    assert err_t < 5.0, f'translation error {err_t:.1f} mm too large'
+    assert err_r < 2.0, f'rotation error {err_r:.2f} deg too large'
+    # degenerate inputs must return None, not raise
+    assert gd.pnp_grid_pose(obj_in[:3], img[:3], k, dist) is None, \
+        '< 4 points must fail cleanly'
+    assert gd.pnp_grid_pose(obj_in, img, np.zeros((3, 3)), dist) is None, \
+        'a zero K must fail cleanly'
+    print('PASS PnP round-trip (projectPoints -> solvePnP) + failure '
+          'branches')
+
+
+def test_arm_cam_chain():
+    # T_cam_in_arm = inv(handeye 4x4) @ inv(T_grid_in_cam); the
+    # cam->arm->grid chain must round-trip exactly against the handeye
+    # equation.
+    r_h, t_h = _handeye()
+    obj_in, img, k, dist, t_grid_in_cam = _synthetic_pnp_case()
+    t_cam_in_arm = gd.arm_cam_tf(r_h, t_h, t_grid_in_cam)
+    assert np.allclose(
+        t_cam_in_arm,
+        gd.arm_tf_from_handeye(r_h, t_h) @ gd.inv_tf(t_grid_in_cam),
+        atol=1e-12), 'must equal inv(handeye) @ inv(pnp)'
+    p_cam = np.array([123.0, -45.0, 500.0])
+    p_arm = gd.apply_tf(t_cam_in_arm, p_cam)
+    p_grid_via_cam = gd.apply_tf(gd.inv_tf(t_grid_in_cam), p_cam)
+    assert np.allclose(gd.arm_to_grid(p_arm, r_h, t_h),
+                       p_grid_via_cam, atol=1e-9), \
+        'cam -> arm -> grid must round-trip'
+    print('PASS T_cam_in_arm composition (cam -> arm -> grid chain)')
+
+
+def test_moved_grid():
+    # two different cam_T_grid -> two DIFFERENT target_arm; the first
+    # equals the static handeye target (board in the calibration
+    # position at capture), the second equals the chain result.
+    r_h, t_h = _handeye()
+    obj_in, img, k, dist, t_a = _synthetic_pnp_case()
+    yaw = 0.35
+    m = gd.tf4(np.array([[math.cos(yaw), -math.sin(yaw), 0.0],
+                         [math.sin(yaw), math.cos(yaw), 0.0],
+                         [0.0, 0.0, 1.0]]),
+               np.array([120.0, -40.0, 0.0]))
+    t_b = t_a @ m  # the grid moved by m between detections
+    t_cam_in_arm = gd.arm_cam_tf(r_h, t_h, t_a)  # captured at pose A
+    g = np.array([3.7333, 5.6, 0.0]) * 25.4        # the demo square
+    live_a = gd.live_target_from(t_cam_in_arm, t_a, g)
+    live_b = gd.live_target_from(t_cam_in_arm, t_b, g)
+    static = gd.grid_to_arm(g, r_h, t_h)
+    assert np.allclose(live_a, static, atol=1e-6), \
+        'at capture the live target must equal the static handeye target'
+    assert np.linalg.norm(live_b - live_a) > 50.0, \
+        'a moved grid must move the target'
+    assert np.allclose(live_b,
+                       gd.grid_to_arm(gd.apply_tf(m, g), r_h, t_h),
+                       atol=1e-6), \
+        'the moved-grid target must equal the chain result'
+    print('PASS moved-grid live target (A = static, B = chain result)')
+
+
+def test_live_normal():
+    # the live normal must equal the static one (the camera is fixed to
+    # the arm) and the sign logic must flip a through-board normal on
+    # both paths.
+    r_h, t_h = _handeye()
+    obj_in, img, k, dist, t_a = _synthetic_pnp_case()
+    t_cam_in_arm = gd.arm_cam_tf(r_h, t_h, t_a)
+    n = gd.live_normal_from(t_cam_in_arm, t_a)
+    assert abs(np.linalg.norm(n) - 1.0) < 1e-9, 'live normal must be unit'
+    assert np.allclose(n, gd.lift_direction(r_h)[0], atol=1e-9), \
+        'live normal == static normal (camera fixed to the arm)'
+    n_keep, flipped_keep = gd.sign_lift_normal(n)
+    assert not flipped_keep and np.allclose(n_keep, n, atol=1e-9)
+    # through-board handeye: the live normal must flip too
+    r2 = np.diag([1.0, -1.0, -1.0]) @ r_h
+    t2_cam_in_arm = gd.arm_cam_tf(r2, t_h, t_a)
+    n2, flipped = gd.sign_lift_normal(
+        gd.live_normal_from(t2_cam_in_arm, t_a))
+    assert flipped, 'through-board live normal must flip'
+    assert n2[2] > 0.0, 'the flipped live normal must point away'
+    print('PASS live normal direction + sign logic (both live paths)')
+
+
+def test_static_fallback():
+    # the T008 trigger freshness gate: freshest live target when
+    # younger than DETECT_MAX_AGE_S; otherwise static fallback + WARN
+    # reason.
+    static = np.array([100.0, -40.0, 150.0])
+    s_normal = np.array([0.0, 0.0, 1.0])
+    live = np.array([220.0, -80.0, 130.0])
+    l_normal = np.array([0.0, 0.3, 0.9539392014])
+    l_normal = l_normal / np.linalg.norm(l_normal)
+    now = 1000.0
+    t, n, used, reason = gd.pick_target(live, l_normal, now - 1.0, now,
+                                        static, s_normal)
+    assert used and not reason, 'a fresh live target must be used'
+    assert np.allclose(t, live) and np.allclose(n, l_normal)
+    t, n, used, reason = gd.pick_target(live, l_normal, now - 6.0, now,
+                                        static, s_normal)
+    assert not used and 'stale' in reason, 'a stale live target must WARN'
+    assert np.allclose(t, static) and np.allclose(n, s_normal)
+    t, n, used, _ = gd.pick_target(
+        live, l_normal, now - gd.DETECT_MAX_AGE_S, now, static, s_normal)
+    assert used, 'exactly DETECT_MAX_AGE_S old is still fresh (<=)'
+    t, n, used, reason = gd.pick_target(None, None, None, now,
+                                        static, s_normal)
+    assert not used and 'no live target' in reason, \
+        'no live target must fall back with a reason'
+    assert np.allclose(t, static)
+    print('PASS trigger freshness gate (stale -> static fallback + WARN)')
+
+
+def test_hover_default_60():
+    src = GRASP_DEMO.read_text()
+    assert "declare_parameter('hover_z', 60.0)" in src, \
+        'hover_z default must be 60.0 (T008)'
+    assert "'hover_z', 30.0" not in src, 'the old 30.0 default must be gone'
+    print('PASS hover_z default 60.0')
+
+
 def test_py310_grammar():
     for path in (GRASP_DEMO, ARM_BRIDGE, LAUNCH, ARM_SETUP, BRINGUP_SETUP,
                  Path(__file__).resolve()):
@@ -397,7 +571,7 @@ def test_gripper_topic_rename():
 
 
 def main():
-    print('T007 selftest (no ROS, no camera, no detector)')
+    print('T007/T008 selftest (no ROS, no camera, no detector)')
     test_target_square()
     test_handeye_roundtrip()
     test_lift_direction_flip()
@@ -407,9 +581,15 @@ def main():
     test_sequence_success()
     test_clamp_stall_continues()
     test_csv_writer()
+    test_pnp_roundtrip()
+    test_arm_cam_chain()
+    test_moved_grid()
+    test_live_normal()
+    test_static_fallback()
+    test_hover_default_60()
     test_py310_grammar()
     test_gripper_topic_rename()
-    print('RESULT: PASS — all T007 selftests green')
+    print('RESULT: PASS — all T007/T008 selftests green')
     return 0
 
 

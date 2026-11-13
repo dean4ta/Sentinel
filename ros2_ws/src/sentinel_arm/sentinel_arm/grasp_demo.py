@@ -32,7 +32,7 @@ service call BLOCKS until the run finishes):
   1. CLOSED_REF  clamp -> clamp_close_rad (fully closed, default
                  3.140 rad); read the achieved clamp angle back ->
                  closed_ref; log angle + pressure
-  2. HOVER       arm/ee_goals -> target + hover_z (30 mm) along the
+  2. HOVER       arm/ee_goals -> target + hover_z (60 mm) along the
                  grid normal (away from the board); wait reach
   3. OPEN        clamp -> clamp_open_rad (fully open, default
                  1.859 rad); log
@@ -49,11 +49,23 @@ timeout the node logs a WARN naming the stage and PROCEEDS TO THE NEXT
 ACTION — an unreachable pose or a clamp stall is expected and the run
 never aborts (user requirement).
 
-The arm target comes from the grid JSON + handeye.yaml (board in the
-calibration position, exactly like test_handeye.py); the camera only
-VERIFIES the grid is in view and reports tag count + target pixel
-position. If the grid is not verified at trigger time the run proceeds
-with a WARN. Camera: /dev/sentinel_webcam opened directly (no ROS
+T008 — LIVE grid localization: the arm target comes from the CURRENT
+detection, not from a fixed calibration pose. On the FIRST valid
+detection (>= min_tags matched tags, PnP succeeds) the node captures
+the fixed camera->arm transform T_cam_in_arm = inv(handeye 4x4) @
+inv(that detection's grid->cam PnP pose); the board is ASSUMED to sit
+in its handeye-calibration position at that moment (logged once — the
+static JSON/handeye target stays correct as the fallback). Every
+detection cycle after that re-solves the grid pose via cv2.solvePnP
+(tag black-border corners at 0.8 x side from the grid JSON, inches ->
+mm with z=0, against the matched undistorted detections, K + dist from
+camera_matrix.yaml after K-scaling) and stores the freshest live
+target + lift normal (arm frame, sign-flipped by the existing rule).
+The trigger uses the freshest live target when younger than
+DETECT_MAX_AGE_S; otherwise it WARNs and falls back to the static
+JSON/handeye target (the T007 path, kept as the fallback). The target
+is frozen at trigger for the whole run — the board must not move
+mid-sequence. Camera: /dev/sentinel_webcam opened directly (no ROS
 camera node), 1280x720, C270 dark-start warm-up (read up to 60 frames
 discarding mean < 5), undistorted with camera_matrix.yaml (K scaled by
 width/height ratio when the capture resolution differs) BEFORE tag
@@ -126,15 +138,21 @@ CAM_RETRY_EVERY_S = 5.0
 STATUS_EVERY_S = 2.0
 LOCK_PATH = '/tmp/grasp_demo.lock'
 
-# Settle check: hover and descend targets are only ~20 mm apart — inside
-# reach_tol — so a plain wait_reach would pass on the first fresh sample
-# while the arm is still moving. wait_settled instead requires N
-# consecutive FRESH samples that are inside the tolerance AND moved less
-# than SETTLE_DELTA_MM since the previous sample.
+# Settle check: with the T008 hover height (60 mm) the hover/descend
+# targets are ~50 mm apart — outside reach_tol — but a smaller
+# launch-overridden hover could put them back inside it, and a reach
+# check alone never proves the pose STOPPED moving. wait_settled
+# instead requires N consecutive FRESH samples that are inside the
+# tolerance AND moved less than SETTLE_DELTA_MM since the previous
+# sample, so DESCEND/LIFT must actually stop before GRASP / the next
+# move.
 SETTLE_N_SAMPLES = 5
 SETTLE_DELTA_MM = 2.0
 
-DETECT_MAX_AGE_S = 5.0      # grid verification older than this: stale
+DETECT_MAX_AGE_S = 5.0      # live grid target older than this at
+                            # trigger: stale -> static fallback
+PNP_STATIC_AGREE_WARN_MM = 40.0  # T_cam_in_arm capture-time live-vs-
+                                 # static disagreement above this WARNs
 
 # Deployed-Orin defaults (Sentinel/ work root, per user rule 2026-11-13).
 DEFAULT_GRID_JSON = ('/home/sentinel1/dean/Sentinel/hand_eye/'
@@ -425,6 +443,18 @@ def arm_to_grid(arm_mm, r, t):
             + np.asarray(t, dtype=float)).reshape(3)
 
 
+def sign_lift_normal(n0):
+    """(n unit, flipped) — sign the grid +z axis in the ARM frame so
+    +z_lift moves the tip AWAY from the board: flip a through-board
+    normal (n[2] < 0 in the arm frame), keep an away-from-board one.
+    Shared by the static path (lift_direction) and the T008 live path."""
+    n0 = np.asarray(n0, dtype=float)
+    n = n0 / np.linalg.norm(n0)
+    if n[2] < 0.0:
+        return -n, True
+    return n, False
+
+
 def lift_direction(r):
     """Grid +z axis in the arm frame, signed so +z_lift moves the tip
     AWAY from the board. Returns (n (3,) unit, flipped bool).
@@ -445,9 +475,132 @@ def lift_direction(r):
               f'({n0[2]:.3f}) — the sign check assumes the arm is '
               'above the board; verify the printed lift direction '
               'before the run!', file=sys.stderr)
-    if n0[2] < 0.0:
-        return -n0, True
-    return n0, False
+    return sign_lift_normal(n0)
+
+
+# ---------------------------------------------------------------------
+# T008 core: live grid localization — PnP grid pose per detection
+# cycle + the fixed camera->arm capture. Pure numpy/cv2, no ROS.
+# ---------------------------------------------------------------------
+
+def tf4(r, t):
+    """4x4 homogeneous rigid transform: p' = R @ p + t (p' = M @ p)."""
+    m = np.eye(4)
+    m[:3, :3] = np.asarray(r, dtype=float)
+    m[:3, 3] = np.asarray(t, dtype=float).reshape(3)
+    return m
+
+
+def inv_tf(m):
+    """Inverse of a 4x4 rigid transform: [R | t] -> [R^T | -R^T t]."""
+    m = np.asarray(m, dtype=float)
+    r, t = m[:3, :3], m[:3, 3]
+    out = np.eye(4)
+    out[:3, :3] = r.T
+    out[:3, 3] = -r.T @ t
+    return out
+
+
+def apply_tf(m, pts):
+    """Apply a 4x4 to (N,3) or (3,) points -> (N,3) / (3,)."""
+    pts = np.asarray(pts, dtype=float)
+    single = pts.ndim == 1
+    p2 = np.atleast_2d(pts)
+    out = (np.asarray(m, dtype=float)
+           @ np.column_stack([p2, np.ones(len(p2))]).T).T
+    return out[0, :3] if single else out[:, :3]
+
+
+def arm_tf_from_handeye(r, t):
+    """grid -> arm 4x4 (p_arm = R^T @ (p_grid - t)).
+
+    handeye.yaml satisfies grid_mm = R @ arm_xyz_mm + t, i.e. [R | t]
+    maps arm -> grid; this returns that transform's inverse (grid ->
+    arm) — the 4x4 form of the existing grid_to_arm()."""
+    r = np.asarray(r, dtype=float)
+    t = np.asarray(t, dtype=float)
+    return tf4(r.T, -r.T @ t)
+
+
+def pnp_grid_pose(obj_in, img_px, k, dist):
+    """grid -> cam 4x4 (p_cam = T @ p_grid) from matched tag corners
+    via cv2.solvePnP.
+
+    obj_in (M,2): black-border corner coords in GRID INCHES (the
+    match_corners output, quiet-zone fraction 0.8); img_px (M,2): the
+    matched pixel coords; k/dist: the (possibly resolution-scaled)
+    camera matrix + distortion coefficients from camera_matrix.yaml.
+
+    Returns None when solvePnP fails or the recovered pose puts the
+    board BEHIND the camera (mean cam-frame z <= 0 — the mirror
+    solution of the planar-pose ambiguity)."""
+    obj = np.column_stack(
+        [np.asarray(obj_in, dtype=float) * IN_TO_MM, np.zeros(len(obj_in))])
+    img = np.asarray(img_px, dtype=float)
+    try:
+        ok, rvec, tvec = cv2.solvePnP(obj, img, np.asarray(k, dtype=float),
+                                      np.asarray(dist, dtype=float))
+    except cv2.error:
+        return None
+    if not ok:
+        return None
+    r, _ = cv2.Rodrigues(rvec)
+    t = np.asarray(tvec, dtype=float).reshape(3)
+    z_cam = (r @ obj.T).T[:, 2] + t[2]
+    if float(np.mean(z_cam)) <= 0.0:
+        return None
+    return tf4(r, t)
+
+
+def arm_cam_tf(r_handeye, t_handeye, t_grid_in_cam):
+    """cam -> arm 4x4 (p_arm = T @ p_cam), FIXED at the first valid
+    detection.
+
+    T = inv(handeye 4x4) @ inv(T_grid_in_cam): the handeye grid->arm
+    transform composed with that detection's cam->grid inverse. The
+    board is ASSUMED to sit in its handeye-calibration position at
+    that moment, so live == static at startup and the static
+    JSON/handeye target stays correct as the fallback."""
+    return arm_tf_from_handeye(r_handeye, t_handeye) @ \
+        inv_tf(t_grid_in_cam)
+
+
+def live_target_from(t_arm_cam, t_grid_in_cam, target_grid_mm):
+    """Live target in the arm frame:
+    p_target_arm = T_cam_in_arm @ T_grid_in_cam @ [target_grid_mm, 1]."""
+    p_cam = apply_tf(t_grid_in_cam, target_grid_mm)
+    return apply_tf(t_arm_cam, p_cam)
+
+
+def live_normal_from(t_arm_cam, t_grid_in_cam):
+    """Grid +z axis in the arm frame from the live chain (unit,
+    UNFLIPPED — run sign_lift_normal() on the result)."""
+    n = (np.asarray(t_arm_cam, dtype=float)[:3, :3]
+         @ np.asarray(t_grid_in_cam, dtype=float)[:3, :3]
+         @ np.array([0.0, 0.0, 1.0]))
+    return n / np.linalg.norm(n)
+
+
+def pick_target(live_arm, live_normal, live_time, now,
+                static_arm, static_normal):
+    """(target, normal, used_live, reason) — the T008 trigger rule.
+
+    Use the freshest live (PnP-localized) target when younger than
+    DETECT_MAX_AGE_S; otherwise fall back to the static JSON/handeye
+    target and return the WARN reason ('' on the live path)."""
+    if live_arm is not None and live_normal is not None \
+            and live_time is not None \
+            and (now - live_time) <= DETECT_MAX_AGE_S:
+        return (np.asarray(live_arm, dtype=float),
+                np.asarray(live_normal, dtype=float), True, '')
+    if live_arm is None or live_normal is None or live_time is None:
+        reason = ('no live target yet (PnP needs >= min_tags matched '
+                  'tag corners + the camera matrix)')
+    else:
+        reason = (f'live target stale ({now - live_time:.1f}s > '
+                  f'{DETECT_MAX_AGE_S:.1f}s)')
+    return (np.asarray(static_arm, dtype=float),
+            np.asarray(static_normal, dtype=float), False, reason)
 
 
 # ---------------------------------------------------------------------
@@ -486,11 +639,11 @@ class SettleTracker:
     """Pose-settle detector (pure — no ROS). Settled only after N
     consecutive FRESH samples that are BOTH inside the tolerance and
     moved less than delta_mm since the previous sample. A plain
-    err <= tol check is vacuous for DESCEND/LIFT: hover and descend
-    targets are only ~20 mm apart (inside reach_tol), so the first
-    fresh sample reads "reached" while the arm is still moving. The
-    node feeds fresh arm/ee_pose samples inside its nested spin; the
-    selftest feeds simulated samples."""
+    err <= tol check cannot prove DESCEND/LIFT actually stopped moving
+    (hover and descend are 50 mm apart at the T008 hover height, but a
+    launch-overridden smaller hover could put them back inside
+    reach_tol). The node feeds fresh arm/ee_pose samples inside its
+    nested spin; the selftest feeds simulated samples."""
 
     def __init__(self, tol, delta_mm=SETTLE_DELTA_MM,
                  n=SETTLE_N_SAMPLES):
@@ -634,9 +787,9 @@ def run_sequence(env, target_arm, normal, params, logger):
                         f'{params["reach_timeout"]:.1f} s ({note}) — '
                         'continuing to the next action')
         if settle:
-            # DESCEND/LIFT: wait_reach alone is vacuous (hover and
-            # descend targets are ~20 mm apart, inside reach_tol) —
-            # require the pose to actually stop moving before GRASP.
+            # DESCEND/LIFT: require the pose to actually STOP moving
+            # before GRASP / the next move — a reach check alone
+            # cannot prove the arm is no longer in motion.
             settled, serr, snote = env.wait_settled(
                 cmd, float(params['reach_timeout']))
             if not settled:
@@ -792,7 +945,7 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
             self.declare_parameter('output_dir', DEFAULT_OUTPUT_DIR)
             self.declare_parameter('target_row', 2)
             self.declare_parameter('target_col', 1)
-            self.declare_parameter('hover_z', 30.0)
+            self.declare_parameter('hover_z', 60.0)
             self.declare_parameter('descend_z', 10.0)
             self.declare_parameter('grasp_clamp_rad', 2.686)
             self.declare_parameter('reach_tol', 25.0)
@@ -888,13 +1041,27 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
             self._degraded = False
             self._last_status = 0.0
 
+            # --- T008 live localization state ---
+            self.k = None            # scaled K for PnP (set with the
+                                     # undistort maps)
+            self.dist = None         # dist coeffs for PnP
+            self.handeye_r = None    # handeye R/t (for T_cam_in_arm)
+            self.handeye_t = None
+            self.t_arm_cam = None    # fixed cam -> arm 4x4 (first PnP)
+            self.live_target_arm = None
+            self.live_normal = None
+            self.live_target_time = None
+            self._no_k_warned = False
+
             self._load_target()
             self.get_logger().info(
                 'grasp_demo ready — trigger with: '
                 'ros2 service call /grasp/start std_srvs/srv/Trigger '
                 '\'{}\'')
 
-        # --- target / normal from grid JSON + handeye.yaml ---
+        # --- static target / normal from grid JSON + handeye.yaml
+        # (T008: the FALLBACK; the live target comes from the
+        # detection timer's PnP localization) ---
 
         def _home_xyz_param(self):
             v = self.get_parameter('home_xyz').value
@@ -939,6 +1106,8 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
                     f'handeye.yaml problem ({handeye_yaml}): {exc} — the '
                     'sequence will refuse to start')
                 return
+            self.handeye_r = r  # T008: kept for the T_cam_in_arm capture
+            self.handeye_t = t
             if self.target_in is None:
                 return
             g = np.array([self.target_in[0], self.target_in[1], 0.0],
@@ -1118,9 +1287,9 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
                     cap.release()
                     self.get_logger().warn(
                         f'cannot open camera {self.camera_device} — '
-                        f'retrying every {CAM_RETRY_EVERY_S:.0f}s; the arm '
-                        'sequence still runs from the grid JSON + '
-                        'handeye.yaml')
+                        f'retrying every {CAM_RETRY_EVERY_S:.0f}s; no '
+                        'live localization (the arm sequence still runs '
+                        'from the static JSON/handeye target)')
                     return
                 cap.set(cv2.CAP_PROP_FOURCC,
                         cv2.VideoWriter_fourcc(*'MJPG'))
@@ -1145,6 +1314,11 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
                     f'capture {w}x{h} != calibrated '
                     f'{calib_size[0]}x{calib_size[1]} — K scaled')
                 k = scale_intrinsics(k, calib_size, (w, h))
+            # T008: PnP uses the same (scaled) K + dist, and solvePnP
+            # models distortion itself, so these stay valid even when
+            # the undistort maps fail to build (RAW frames).
+            self.k = k
+            self.dist = dist
             try:
                 self.maps = build_undistort_maps(k, dist, (w, h))
                 self.get_logger().info('undistort ON')
@@ -1213,9 +1387,75 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
                 self.last_tags = n_tags
                 self.detect_time = time.time()
                 self._degraded = degraded
+                if obj_pts is not None:
+                    # T008: PnP on the matched corners -> freshest live
+                    # target + normal in the arm frame. (The degraded
+                    # center-only path has no corners, so it updates the
+                    # pixel overlay but not the live target.)
+                    self._localize(obj_pts, img_pts)
             else:
                 self.last_tags = n_tags
             self._print_status()
+
+        def _localize(self, obj_in, img_px):
+            """One live-localization cycle (T008). PnP -> grid pose in
+            camera coords -> the freshest live target + lift normal in
+            the ARM frame. The FIRST successful PnP also captures the
+            fixed T_cam_in_arm: the board is ASSUMED to sit in its
+            handeye-calibration position at that moment (logged once,
+            with a live-vs-static agreement check)."""
+            if self.k is None or self.handeye_r is None:
+                if not self._no_k_warned:
+                    self._no_k_warned = True
+                    self.get_logger().warn(
+                        'PnP localization OFF — camera matrix or '
+                        'handeye.yaml unavailable; the arm target '
+                        'stays the static JSON/handeye value')
+                return
+            t_grid_in_cam = pnp_grid_pose(obj_in, img_px, self.k,
+                                          self.dist)
+            if t_grid_in_cam is None:
+                self.get_logger().warn(
+                    'PnP failed on this frame (degenerate pose?) — '
+                    'keeping the previous live target',
+                    throttle_duration_sec=5.0)
+                return
+            target_g = np.array([self.target_in[0], self.target_in[1],
+                                 0.0], dtype=float) * IN_TO_MM
+            if self.t_arm_cam is None:
+                self.t_arm_cam = arm_cam_tf(self.handeye_r,
+                                            self.handeye_t,
+                                            t_grid_in_cam)
+                live0 = live_target_from(self.t_arm_cam, t_grid_in_cam,
+                                         target_g)
+                agree = float(np.linalg.norm(live0 - self.target_arm))
+                self.get_logger().info(
+                    'T_cam_in_arm captured from the first valid '
+                    'detection — the board is ASSUMED in its '
+                    'handeye-calibration position NOW (the transform '
+                    f'is fixed from here on). Live-vs-static '
+                    f'agreement: {agree:.1f} mm')
+                if agree > PNP_STATIC_AGREE_WARN_MM:
+                    self.get_logger().warn(
+                        f'capture-time live target disagrees with the '
+                        f'static handeye target by {agree:.1f} mm '
+                        f'(> {PNP_STATIC_AGREE_WARN_MM:.0f} mm) — the '
+                        'board may NOT be in the calibration position')
+            self.live_target_arm = live_target_from(
+                self.t_arm_cam, t_grid_in_cam, target_g)
+            n0 = live_normal_from(self.t_arm_cam, t_grid_in_cam)
+            self.live_normal, flipped = sign_lift_normal(n0)
+            if abs(self.live_normal[2]) < NORMAL_Z_WARN:
+                self.get_logger().warn(
+                    f'live grid normal has a small arm-z component '
+                    f'({self.live_normal[2]:.3f}) — verify the lift '
+                    'direction before triggering!',
+                    throttle_duration_sec=5.0)
+            if flipped:
+                self.get_logger().warn(
+                    'live grid normal sign FLIPPED (through-board)',
+                    throttle_duration_sec=5.0)
+            self.live_target_time = time.time()
 
         def _print_status(self):
             now = time.time()
@@ -1223,10 +1463,17 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
                 return
             self._last_status = now
             dist_txt = 'n/a'
+            live_txt = ''
             pose = self.fresh_ee_xyz()
-            if pose is not None and self.target_arm is not None:
-                dist_txt = \
-                    f'{np.linalg.norm(pose - self.target_arm):.0f} mm'
+            if self.target_arm is not None:
+                target, _, used_live, _ = pick_target(
+                    self.live_target_arm, self.live_normal,
+                    self.live_target_time, now, self.target_arm,
+                    self.normal)
+                live_txt = 'live' if used_live else 'static-fallback'
+                if pose is not None:
+                    dist_txt = \
+                        f'{np.linalg.norm(pose - target):.0f} mm'
             if self.target_px is not None:
                 extra = ' (center-only homography)' if self._degraded \
                     else ''
@@ -1234,7 +1481,7 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
                     f'tags: {self.last_tags}, target px '
                     f'({self.target_px[0]:.0f}, '
                     f'{self.target_px[1]:.0f}), dist-to-target '
-                    f'{dist_txt}{extra}')
+                    f'{dist_txt} [{live_txt}]{extra}')
             elif self.last_tags:
                 self.get_logger().info(
                     f'tags: {self.last_tags} (< {self.params["min_tags"]} '
@@ -1270,27 +1517,38 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
             self._busy = True
             rows = []
             try:
+                # T008: freshest live (PnP-localized) target when
+                # younger than DETECT_MAX_AGE_S; otherwise the static
+                # JSON/handeye target with a WARN (the T007 fallback).
+                target, normal, used_live, reason = pick_target(
+                    self.live_target_arm, self.live_normal,
+                    self.live_target_time, time.time(),
+                    self.target_arm, self.normal)
+                if used_live:
+                    diff = float(np.linalg.norm(target - self.target_arm))
+                    self.get_logger().info(
+                        f'live grid target ({target[0]:.1f}, '
+                        f'{target[1]:.1f}, {target[2]:.1f}) mm — '
+                        f'{diff:.1f} mm from the static handeye target '
+                        '(nonzero once the grid moved)')
+                else:
+                    self.get_logger().warn(
+                        f'{reason} — falling back to the static '
+                        'JSON/handeye target (board must be in the '
+                        'calibration position)')
                 if self.last_tags < self.params['min_tags']:
                     self.get_logger().warn(
-                        f'grid NOT verified in the camera (last '
-                        f'detection: {self.last_tags} tags) — moving to '
-                        'the JSON/handeye target anyway (board must be in '
-                        'the calibration position)')
-                elif self.detect_time is None or \
-                        time.time() - self.detect_time > \
-                        DETECT_MAX_AGE_S:
-                    age = 'never' if self.detect_time is None else \
-                        f'{time.time() - self.detect_time:.0f}s ago'
-                    self.get_logger().warn(
-                        f'grid verification stale (last good detection '
-                        f'{age}) — moving to the JSON/handeye target '
-                        'anyway (camera is verification-only)')
+                        f'grid NOT detected in the camera (last '
+                        f'detection: {self.last_tags} tags < '
+                        f'{self.params["min_tags"]}) — using the '
+                        f'{"freshest live" if used_live else "static"} '
+                        'target')
                 self.get_logger().warn(
                     'SAFETY: autonomous arm motion + grasping — keep '
                     'clear of the arm and the board. Torque stays '
                     'locked; an in-flight T:1041 move has no cancel path '
                     '(completes in ~2-3 s).')
-                rows = run_sequence(self, self.target_arm, self.normal,
+                rows = run_sequence(self, target, normal,
                                     self.params, self.get_logger())
                 resp.success = True
                 resp.message = (f'done: {len(rows)} stages logged — '
