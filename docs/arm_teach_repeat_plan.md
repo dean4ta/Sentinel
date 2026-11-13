@@ -15,7 +15,7 @@ Branch: `feat/arm_testing`. Date: 2026-11-06.
 | Pose feedback | topic `arm/joint_states` (`sensor_msgs/JointState`) | ~10 Hz, from `{"T":105}` polls → `T:1051` responses |
 | Move command | topic `arm/joint_goals` (`sensor_msgs/JointState`) | Fire-and-forget, per-joint `{"T":101,"joint":N,"rad":r,"spd":s,"acc":a}` |
 | Launch | `arm_bridge.launch.py`; bringup also starts the arm node | Bridge params: port, baud, spd, acc, read_rate, home |
-| Gripper sensors | `sentinel_msgs/msg/GripperSensors.msg` on `/gripper` | 10 Hz raw ADC from the motor-controller Pico |
+| Gripper sensors | `sentinel_msgs/msg/GripperSensors.msg` on `/gripper_pressure_reading` | 10 Hz raw ADC from the motor-controller Pico |
 
 Joints (radians): `base`=1, `shoulder`=2, `elbow`=3, `clamp`=4.
 
@@ -232,7 +232,7 @@ ros2 topic echo arm/teach_status   # watch progress, exercise pause/resume/stop
 - Joint-space interpolation mode (host-side ticker, ~20 Hz `T:101` along linear joint path).
 - Record Cartesian `xyz` alongside joints (bridge must publish it — currently dropped).
 - Export a waypoint file to the arm's onboard mission system (`T:220–224`) for standalone replay.
-- Grasp gating with the gripper ADC sensors (`/gripper`) — stop closing clamp at a pressure threshold.
+- Grasp gating with the gripper ADC sensors (`/gripper_pressure_reading`) — stop closing clamp at a pressure threshold.
 - Foxglove/RViz panel for teach/repeat.
 
 ---

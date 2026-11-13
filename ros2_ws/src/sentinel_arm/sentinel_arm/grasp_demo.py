@@ -17,29 +17,28 @@ row 2 (1-indexed row 3), col 1 (middle square column) -> squares[7]
 -> center (3.7333, 5.6) in. Params target_row / target_col (defaults
 2 / 1) index the same list.
 
-CLAMP DIRECTION ASSUMPTION (verify on the first run; params flip it):
-the repo's teach/repeat docs carry only ILLUSTRATIVE clamp angles
-(0.00 rad at "home", 1.10 rad "clamp closes", 3.14 rad at "grasp" —
-never hardware-verified). This node assumes clamp 0.0 rad is the
-fully-closed COMMAND and positive angles OPEN the gripper, so the
-locked sequence spec "grasp = closed_ref + 10 deg" opens the gripper
-10 deg from the measured closed reference. The closed reference is
-READ BACK LIVE from arm/joint_states after commanding, so the grasp
-target is self-consistent with the hardware even if 0.0 rad is not
-exactly the closed stop. clamp_close_rad (default 0.0) and
-clamp_open_rad (default 3.14) are launch params.
+CLAMP ANGLES (hardware-verified from the Orin saved mission
+~/arm_waypoints/pick_demo.yaml, joints base/shoulder/elbow/clamp in
+rad): POSITIVE = CLOSING — open ≈ 1.859, fully closed ≈ 3.140,
+holding grasp ≈ 2.686. CLOSED_REF commands clamp_close_rad (default
+3.140) and logs the live read-back angle + pressure; NO later step
+computes from it. GRASP is a DIRECT target: the grasp_clamp_rad
+param (default 2.686, the pick_demo holding grasp) — the earlier
+"closed_ref + 10 deg" rule was dropped in favor of the holding grasp.
+clamp_close_rad / clamp_open_rad / grasp_clamp_rad are launch params.
 
 Sequence (one /grasp/start std_srvs/Trigger call = one full run; the
 service call BLOCKS until the run finishes):
-  1. CLOSED_REF  clamp -> clamp_close_rad (fully closed); read the
-                 achieved clamp angle back -> closed_ref; log angle +
-                 pressure
+  1. CLOSED_REF  clamp -> clamp_close_rad (fully closed, default
+                 3.140 rad); read the achieved clamp angle back ->
+                 closed_ref; log angle + pressure
   2. HOVER       arm/ee_goals -> target + hover_z (30 mm) along the
                  grid normal (away from the board); wait reach
-  3. OPEN        clamp -> clamp_open_rad (fully open); log
+  3. OPEN        clamp -> clamp_open_rad (fully open, default
+                 1.859 rad); log
   4. DESCEND     arm/ee_goals -> target + descend_z (10 mm); wait
-  5. GRASP       clamp -> closed_ref + grasp_open_deg (10 deg); log
-                 angle + pressure + deltas vs OPEN
+  5. GRASP       clamp -> grasp_clamp_rad (default 2.686 rad, the
+                 holding grasp); log angle + pressure + deltas vs OPEN
   6. LIFT        arm/ee_goals -> target + hover_z; wait reach
   7. HOME        arm/ee_goals -> home_xyz (the hand-captured home,
                  with its yaw); wait reach
@@ -543,7 +542,7 @@ def run_sequence(env, target_arm, normal, params, logger):
       wait_clamp(rad, timeout_s)    -> (reached, angle_rad, note)
       read_pressure()               -> (hinge, anvil, note)
       read_clamp()                  -> (angle_rad, note)
-    params: clamp_close_rad, clamp_open_rad, clamp_tol, grasp_open_deg,
+    params: clamp_close_rad, clamp_open_rad, clamp_tol, grasp_clamp_rad,
             hover_z, descend_z, reach_tol, reach_timeout, clamp_timeout,
             home_xyz ([x, y, z, t])
     logger: info(msg) / warn(msg).
@@ -576,11 +575,13 @@ def run_sequence(env, target_arm, normal, params, logger):
         press = env.read_pressure()
         log_stage(stage, clamp, press, _join_notes(note, cnote, press[2]))
 
-    # -- 1. CLOSED_REF: command fully closed, read back the achieved
-    #       clamp angle -> that LIVE reading is the closed reference.
+    # -- 1. CLOSED_REF: command fully closed (hardware-verified stop),
+    #       read back the achieved angle + log it with the pressure.
+    #       No later step computes from closed_ref (the GRASP target is
+    #       the direct grasp_clamp_rad param).
     close_cmd = float(params['clamp_close_rad'])
     logger.info(f'CLOSED_REF: clamp -> {close_cmd:.3f} rad '
-                '(assumed fully closed)')
+                '(fully closed)')
     env.publish_joint_clamp(close_cmd)
     reached, angle, note = env.wait_clamp(close_cmd,
                                           float(params['clamp_timeout']))
@@ -589,7 +590,7 @@ def run_sequence(env, target_arm, normal, params, logger):
         logger.warn(
             f'CLOSED_REF: clamp not at {close_cmd:.3f} rad in '
             f'{params["clamp_timeout"]:.1f} s (read back '
-            f'{closed_ref:.3f} rad) — closed reference is suspect; '
+            f'{closed_ref:.3f} rad) — closed reading is suspect; '
             'continuing to the next action')
     press = env.read_pressure()
     log_stage('CLOSED_REF', angle, press, _join_notes(note, press[2]))
@@ -605,7 +606,7 @@ def run_sequence(env, target_arm, normal, params, logger):
 
     # -- 3. OPEN: clamp fully open, then log.
     open_cmd = float(params['clamp_open_rad'])
-    logger.info(f'OPEN: clamp -> {open_cmd:.3f} rad (assumed fully open)')
+    logger.info(f'OPEN: clamp -> {open_cmd:.3f} rad (fully open)')
     env.publish_joint_clamp(open_cmd)
     reached, angle, note = env.wait_clamp(open_cmd,
                                           float(params['clamp_timeout']))
@@ -620,12 +621,11 @@ def run_sequence(env, target_arm, normal, params, logger):
     descend_cmd = target + float(params['descend_z']) * n
     ee_stage('DESCEND', descend_cmd)
 
-    # -- 5. GRASP: closed_ref + grasp_open_deg (10 deg open by the
-    #       locked spec); log deltas vs OPEN.
-    grasp_cmd = closed_ref + deg_to_rad(params['grasp_open_deg'])
-    logger.info(f'GRASP: clamp -> {grasp_cmd:.3f} rad = closed_ref '
-                f'{closed_ref:.3f} rad + {params["grasp_open_deg"]:.1f} '
-                'deg')
+    # -- 5. GRASP: DIRECT target = grasp_clamp_rad (default 2.686 rad,
+    #       the hardware-verified holding grasp from pick_demo.yaml);
+    #       log deltas vs OPEN.
+    grasp_cmd = float(params['grasp_clamp_rad'])
+    logger.info(f'GRASP: clamp -> {grasp_cmd:.3f} rad (holding grasp)')
     env.publish_joint_clamp(grasp_cmd)
     reached, angle, note = env.wait_clamp(grasp_cmd,
                                           float(params['clamp_timeout']))
@@ -721,13 +721,13 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
             self.declare_parameter('target_col', 1)
             self.declare_parameter('hover_z', 30.0)
             self.declare_parameter('descend_z', 10.0)
-            self.declare_parameter('grasp_open_deg', 10.0)
+            self.declare_parameter('grasp_clamp_rad', 2.686)
             self.declare_parameter('reach_tol', 25.0)
             self.declare_parameter('reach_timeout', 10.0)
             self.declare_parameter('clamp_timeout', 5.0)
             self.declare_parameter('clamp_tol', 0.05)
-            self.declare_parameter('clamp_close_rad', 0.0)
-            self.declare_parameter('clamp_open_rad', 3.14)
+            self.declare_parameter('clamp_close_rad', 3.140)
+            self.declare_parameter('clamp_open_rad', 1.859)
             self.declare_parameter('home_xyz', DEFAULT_HOME_XYZ)
             self.declare_parameter('min_tags', MIN_TAGS_FOR_TARGET)
             self.declare_parameter('detect_rate', 5.0)
@@ -735,8 +735,8 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
             self.params = {
                 'hover_z': float(self.get_parameter('hover_z').value),
                 'descend_z': float(self.get_parameter('descend_z').value),
-                'grasp_open_deg':
-                    float(self.get_parameter('grasp_open_deg').value),
+                'grasp_clamp_rad':
+                    float(self.get_parameter('grasp_clamp_rad').value),
                 'reach_tol': float(self.get_parameter('reach_tol').value),
                 'reach_timeout':
                     float(self.get_parameter('reach_timeout').value),

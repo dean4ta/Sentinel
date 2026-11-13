@@ -14,12 +14,13 @@ guarded behind the rclpy import, so this runs in plain Python):
   3. clamp deg -> rad (10 deg = 0.17453292519943295 rad)
   4. Sequence harness, all actions failing: all 7 stages still run in
      order and the run COMPLETES; each failed action logs a WARN naming
-     the stage; closed_ref comes from the read-back; GRASP commands
-     closed_ref + 10 deg; GRASP deltas are vs the OPEN row; EE goal
-     calls are hover/descend/hover/home with the home yaw
+     the stage; closed_ref is logged from the read-back; GRASP commands
+     the direct grasp_clamp_rad (2.686); GRASP deltas are vs the OPEN
+     row; EE goal calls are hover/descend/hover/home with the home yaw
   5. Sequence success path: reached notes, no WARNs
-  6. Clamp-stall harness: close stalls -> closed_ref = read-back
-     (cmd + 0.2), GRASP = that + 10 deg, run still completes
+  6. Clamp-stall harness: close/open stall -> read-back logged short
+     of cmd, GRASP still commands grasp_clamp_rad directly, run still
+     completes
   7. CSV writer: header + row count + empty cells for None
   8. py_compile + py310-grammar (ast feature_version=(3, 10)) on
      grasp_demo.py, this file, the launch file and both edited
@@ -62,10 +63,10 @@ CMD_VEL_CPP = (ROOT / 'ros2_ws' / 'src' / 'sentinel_drive_cpp' / 'src' /
                'cmd_vel_serial.cpp')
 
 PARAMS = {
-    'clamp_close_rad': 0.0,
-    'clamp_open_rad': 3.14,
+    'clamp_close_rad': 3.140,
+    'clamp_open_rad': 1.859,
     'clamp_tol': 0.05,
-    'grasp_open_deg': 10.0,
+    'grasp_clamp_rad': 2.686,
     'hover_z': 30.0,
     'descend_z': 10.0,
     'reach_tol': 25.0,
@@ -227,9 +228,8 @@ def test_sequence_all_timeouts():
                    for lvl, msg in logger.lines), f'{stage} must WARN'
         row = rows[gd.STAGES.index(stage)]
         assert 'err' in row['note'], f'{stage} row must carry the err'
-    # every action fired: close, open, grasp + hover, descend, hover, home
-    assert env.joint_calls == [0.0, 3.14,
-                               0.0 + gd.deg_to_rad(10.0)]
+    # every action fired: close, open, grasp (direct grasp_clamp_rad)
+    assert env.joint_calls == [3.140, 1.859, 2.686]
     assert len(env.ee_calls) == 4
     assert np.allclose(env.ee_calls[0][0],
                        target + 30.0 * normal, atol=1e-6)
@@ -244,8 +244,7 @@ def test_sequence_all_timeouts():
     open_row = rows[gd.STAGES.index('OPEN')]
     assert grasp_row['delta_clamp_deg'] is not None
     assert abs(grasp_row['delta_clamp_deg'] -
-               (math.degrees(gd.deg_to_rad(10.0)) -
-                math.degrees(3.14))) < 0.01
+               (math.degrees(2.686) - math.degrees(1.859))) < 0.01
     assert grasp_row['delta_hinge'] == 0
     assert grasp_row['delta_anvil'] == 0
     assert open_row['delta_clamp_deg'] is None, 'only GRASP carries deltas'
@@ -267,8 +266,9 @@ def test_sequence_success():
 
 
 def test_clamp_stall_continues():
-    # close/open/grasp stalls: closed_ref = read-back (cmd + 0.2) and
-    # GRASP targets that read-back + 10 deg; the run still completes.
+    # close/open/grasp stalls: read-back angles logged short of cmd;
+    # GRASP still commands the direct grasp_clamp_rad (2.686) — no
+    # closed_ref + 10 deg computation anymore; the run still completes.
     env = FakeEnv(fail_reach=True, fail_clamp=True)
     logger = FakeLogger()
     rows = gd.run_sequence(env, np.array([0.0, 0.0, 100.0]),
@@ -278,11 +278,10 @@ def test_clamp_stall_continues():
         assert any(lvl == 'warn' and stage in msg
                    for lvl, msg in logger.lines), \
             f'{stage} stall must WARN'
-    closed_ref = 0.0 + 0.2  # FakeEnv lands short by +0.2
-    grasp = env.joint_calls[2]
-    assert abs(grasp - (closed_ref + gd.deg_to_rad(10.0))) < 1e-9, \
-        f'grasp = closed_ref + 10 deg, got {grasp}'
-    print('PASS clamp-stall harness (closed ref from read-back)')
+    assert env.joint_calls[2] == 2.686, \
+        f'grasp must be the direct grasp_clamp_rad, ' \
+        f'got {env.joint_calls[2]}'
+    print('PASS clamp-stall harness (grasp = direct grasp_clamp_rad)')
 
 
 def test_csv_writer():
