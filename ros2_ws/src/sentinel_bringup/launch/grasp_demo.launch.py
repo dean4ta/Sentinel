@@ -6,10 +6,14 @@
 #
 # cmd_vel_serial runs only for its /gripper_pressure_reading publisher
 # (10 Hz, raw gripper ADC) — no cmd_vel source is started, so the
-# wheels never move. The arm bridge home is [0,0,0,0] = NO home move
-# on boot: the arm stays put until the /grasp/start trigger (the demo's
-# own final HOME stage returns it to the hand-captured home). Torque
-# stays locked for the whole run.
+# wheels never move. The arm bridge home is [0,0,0,0] = NO extra home
+# move after boot. NOTE: opening the serial port resets the ESP32, so
+# the arm moves to its BOOT INIT pose during the ~8 s drain — the arm
+# does NOT stay put at launch. Trigger /grasp/start only after the
+# bridge logs "Arm bridge READY" (grasp_demo refuses the trigger until
+# a fresh arm/ee_pose exists). The demo's own final HOME stage returns
+# the arm to the hand-captured home. Torque stays locked for the whole
+# run.
 #
 # Fold-in note (for the eventual merge into sentinel_bringup.launch.py):
 # the full bringup already starts arm_bridge with home

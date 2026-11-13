@@ -37,9 +37,10 @@ service call BLOCKS until the run finishes):
   3. OPEN        clamp -> clamp_open_rad (fully open, default
                  1.859 rad); log
   4. DESCEND     arm/ee_goals -> target + descend_z (10 mm); wait
+                 reach + SETTLE (pose stops moving before GRASP)
   5. GRASP       clamp -> grasp_clamp_rad (default 2.686 rad, the
                  holding grasp); log angle + pressure + deltas vs OPEN
-  6. LIFT        arm/ee_goals -> target + hover_z; wait reach
+  6. LIFT        arm/ee_goals -> target + hover_z; wait reach + settle
   7. HOME        arm/ee_goals -> home_xyz (the hand-captured home,
                  with its yaw); wait reach
 
@@ -84,6 +85,7 @@ import csv
 import json
 import math
 import os
+import signal
 import sys
 import time
 from datetime import datetime
@@ -123,6 +125,16 @@ NORMAL_Z_WARN = 0.2         # |normal.arm_z| below this: sign check shaky
 CAM_RETRY_EVERY_S = 5.0
 STATUS_EVERY_S = 2.0
 LOCK_PATH = '/tmp/grasp_demo.lock'
+
+# Settle check: hover and descend targets are only ~20 mm apart — inside
+# reach_tol — so a plain wait_reach would pass on the first fresh sample
+# while the arm is still moving. wait_settled instead requires N
+# consecutive FRESH samples that are inside the tolerance AND moved less
+# than SETTLE_DELTA_MM since the previous sample.
+SETTLE_N_SAMPLES = 5
+SETTLE_DELTA_MM = 2.0
+
+DETECT_MAX_AGE_S = 5.0      # grid verification older than this: stale
 
 # Deployed-Orin defaults (the same paths the T004-T006 tools use).
 DEFAULT_GRID_JSON = ('/home/sentinel1/dean/hand_eye/'
@@ -470,6 +482,54 @@ def quat_from_yaw(yaw):
     return math.cos(yaw / 2.0), math.sin(yaw / 2.0)
 
 
+class SettleTracker:
+    """Pose-settle detector (pure — no ROS). Settled only after N
+    consecutive FRESH samples that are BOTH inside the tolerance and
+    moved less than delta_mm since the previous sample. A plain
+    err <= tol check is vacuous for DESCEND/LIFT: hover and descend
+    targets are only ~20 mm apart (inside reach_tol), so the first
+    fresh sample reads "reached" while the arm is still moving. The
+    node feeds fresh arm/ee_pose samples inside its nested spin; the
+    selftest feeds simulated samples."""
+
+    def __init__(self, tol, delta_mm=SETTLE_DELTA_MM,
+                 n=SETTLE_N_SAMPLES):
+        self.tol = float(tol)
+        self.delta = float(delta_mm)
+        self.n = int(n)
+        self.prev = None
+        self.count = 0
+
+    def feed(self, xyz, cmd):
+        """One fresh sample. Returns (settled, err_mm, note). A stale
+        gap must reset the run: call reset() when no fresh pose exists
+        (consecutive samples only count when FRESH)."""
+        p = np.asarray(xyz, dtype=float)
+        c = np.asarray(cmd, dtype=float)
+        err = float(np.linalg.norm(p - c))
+        moved = None if self.prev is None else \
+            float(np.linalg.norm(p - self.prev))
+        self.prev = p
+        if err <= self.tol and moved is not None and moved < self.delta:
+            self.count += 1
+            if self.count >= self.n:
+                return True, err, f'settled, err {err:.1f} mm'
+            return False, err, \
+                f'settling {self.count}/{self.n}, err {err:.1f} mm'
+        self.count = 0
+        if moved is None:
+            note = f'first sample, err {err:.1f} mm'
+        elif err > self.tol:
+            note = f'err {err:.1f} mm > tol'
+        else:
+            note = f'still moving ({moved:.1f} mm/sample)'
+        return False, err, note
+
+    def reset(self):
+        self.prev = None
+        self.count = 0
+
+
 CSV_FIELDS = ('stage', 'clamp_angle_rad', 'clamp_angle_deg', 'hinge',
               'anvil', 'delta_clamp_deg', 'delta_hinge',
               'delta_anvil', 'note')
@@ -539,6 +599,7 @@ def run_sequence(env, target_arm, normal, params, logger):
       publish_joint_clamp(rad)                       -> None
       publish_ee_goal(xyz_mm, yaw_rad=None)          -> None
       wait_reach(xyz_mm, timeout_s) -> (reached, err_mm, note)
+      wait_settled(xyz_mm, timeout_s) -> (settled, err_mm, note)
       wait_clamp(rad, timeout_s)    -> (reached, angle_rad, note)
       read_pressure()               -> (hinge, anvil, note)
       read_clamp()                  -> (angle_rad, note)
@@ -559,9 +620,10 @@ def run_sequence(env, target_arm, normal, params, logger):
         rows.append(row)
         return row
 
-    def ee_stage(stage, cmd, yaw=None):
-        """One timeout-bounded EE move + reach wait + log; a timeout
-        WARNs and the run continues to the next action."""
+    def ee_stage(stage, cmd, yaw=None, settle=False):
+        """One timeout-bounded EE move + reach wait (+ settle check for
+        DESCEND/LIFT) + log; a timeout WARNs and the run continues to
+        the next action."""
         logger.info(f'{stage}: arm/ee_goals -> ({cmd[0]:.1f}, '
                     f'{cmd[1]:.1f}, {cmd[2]:.1f}) mm')
         env.publish_ee_goal(cmd, yaw_rad=yaw)
@@ -571,6 +633,17 @@ def run_sequence(env, target_arm, normal, params, logger):
             logger.warn(f'{stage}: not reached in '
                         f'{params["reach_timeout"]:.1f} s ({note}) — '
                         'continuing to the next action')
+        if settle:
+            # DESCEND/LIFT: wait_reach alone is vacuous (hover and
+            # descend targets are ~20 mm apart, inside reach_tol) —
+            # require the pose to actually stop moving before GRASP.
+            settled, serr, snote = env.wait_settled(
+                cmd, float(params['reach_timeout']))
+            if not settled:
+                logger.warn(f'{stage}: not settled in '
+                            f'{params["reach_timeout"]:.1f} s ({snote}) '
+                            '— continuing to the next action')
+            note = _join_notes(note, snote)
         clamp, cnote = env.read_clamp()
         press = env.read_pressure()
         log_stage(stage, clamp, press, _join_notes(note, cnote, press[2]))
@@ -619,7 +692,7 @@ def run_sequence(env, target_arm, normal, params, logger):
 
     # -- 4. DESCEND: target + descend_z.
     descend_cmd = target + float(params['descend_z']) * n
-    ee_stage('DESCEND', descend_cmd)
+    ee_stage('DESCEND', descend_cmd, settle=True)
 
     # -- 5. GRASP: DIRECT target = grasp_clamp_rad (default 2.686 rad,
     #       the hardware-verified holding grasp from pick_demo.yaml);
@@ -638,7 +711,7 @@ def run_sequence(env, target_arm, normal, params, logger):
     attach_deltas(row, open_row)
 
     # -- 6. LIFT: back up to hover height, then ...
-    ee_stage('LIFT', hover_cmd)
+    ee_stage('LIFT', hover_cmd, settle=True)
 
     # -- 7. HOME: the hand-captured home pose with its yaw.
     home = params['home_xyz']
@@ -978,6 +1051,31 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
                 return False, None, 'no fresh arm/ee_pose (bridge down?)'
             return False, err, f'err {err:.1f} mm'
 
+        def wait_settled(self, xyz, timeout):
+            """Settle check for DESCEND/LIFT: N consecutive FRESH
+            samples inside reach_tol AND < SETTLE_DELTA_MM apart. A
+            stale pose gap resets the run (the samples must be
+            consecutive AND fresh)."""
+            cmd = np.asarray(xyz, dtype=float)
+            tracker = SettleTracker(tol=float(self.params['reach_tol']))
+            deadline = time.time() + float(timeout)
+            note = 'no fresh arm/ee_pose (bridge down?)'
+            while time.time() < deadline and rclpy.ok():
+                rclpy.spin_once(self, timeout_sec=0.05)
+                p = self.fresh_ee_xyz()
+                if p is None:
+                    tracker.reset()
+                    continue
+                settled, err, note = tracker.feed(p, cmd)
+                if settled:
+                    return True, err, note
+            p = self.fresh_ee_xyz()
+            err = float(np.linalg.norm(p - cmd)) \
+                if p is not None else None
+            if err is None:
+                return False, None, note
+            return False, err, f'not settled: {note}'
+
         def _clamp_err(self, cmd):
             if CLAMP_JOINT not in self.joint_pos:
                 return None
@@ -1159,6 +1257,16 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
                 resp.message = ('no target: grid JSON or handeye.yaml '
                                 'failed to load (see log)')
                 return resp
+            if self.fresh_ee_xyz() is None:
+                # the bridge publishes arm/ee_pose only after its boot
+                # drain + handshake; without a fresh pose, HOVER goals
+                # would be dropped and the arm could sweep from its
+                # boot pose straight to the grasp point.
+                resp.success = False
+                resp.message = ('arm bridge not ready — no fresh '
+                                'arm/ee_pose yet; wait for the bridge '
+                                'READY log, then trigger again')
+                return resp
             self._busy = True
             rows = []
             try:
@@ -1168,6 +1276,15 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
                         f'detection: {self.last_tags} tags) — moving to '
                         'the JSON/handeye target anyway (board must be in '
                         'the calibration position)')
+                elif self.detect_time is None or \
+                        time.time() - self.detect_time > \
+                        DETECT_MAX_AGE_S:
+                    age = 'never' if self.detect_time is None else \
+                        f'{time.time() - self.detect_time:.0f}s ago'
+                    self.get_logger().warn(
+                        f'grid verification stale (last good detection '
+                        f'{age}) — moving to the JSON/handeye target '
+                        'anyway (camera is verification-only)')
                 self.get_logger().warn(
                     'SAFETY: autonomous arm motion + grasping — keep '
                     'clear of the arm and the board. Torque stays '
@@ -1177,7 +1294,8 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
                                     self.params, self.get_logger())
                 resp.success = True
                 resp.message = (f'done: {len(rows)} stages logged — '
-                                f'CSV in {self.output_dir}')
+                                f'CSV in '
+                                f'{Path(self.output_dir).expanduser()}')
             except Exception as exc:  # pragma: no cover — defensive
                 resp.success = False
                 resp.message = f'sequence aborted: {exc}'
@@ -1205,11 +1323,38 @@ if HAVE_ROS:  # pragma: no cover — runs on the Orin with ROS2
             self.get_logger().info('\n' + summarize(rows))
 
 
+TERMINATION_SIGNALS = (
+    (signal.SIGINT, 'SIGINT'),
+    (signal.SIGTERM, 'SIGTERM'),
+    (signal.SIGHUP, 'SIGHUP'),
+)
+
+
+def _make_signal_handler(name):  # pragma: no cover — runs on the Orin
+    # handeye_capture.py's pattern (c383b35): rclpy's default SIGINT
+    # handler shuts the context down before the service callback's
+    # finally can write the partial CSV; raise KeyboardInterrupt so the
+    # finally runs while rclpy is still alive. Registered for SIGINT,
+    # SIGTERM and SIGHUP so a kill / terminal close takes the same
+    # path. (SIGKILL cannot be caught.)
+    def handler(signum, frame):
+        print(f'{name} received — exiting (partial CSV will be '
+              'written)', file=sys.stderr)
+        raise KeyboardInterrupt
+    return handler
+
+
+def install_signal_handlers():  # pragma: no cover — runs on the Orin
+    for sig, name in TERMINATION_SIGNALS:
+        signal.signal(sig, _make_signal_handler(name))
+
+
 def main(args=None):
     ok, msg = acquire_lock()
     if not ok:
         print(f'ERROR: {msg}', file=sys.stderr)
         return 2
+    install_signal_handlers()
     rclpy.init(args=args)
     node = None
     try:

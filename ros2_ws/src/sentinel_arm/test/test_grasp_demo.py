@@ -11,20 +11,25 @@ guarded behind the rclpy import, so this runs in plain Python):
      z-lift math: target + hover_z along the signed normal changes only
      the grid-normal component by exactly hover_z; lift_direction
      normalizes, flips a through-board R and keeps an away-from-board R
-  3. clamp deg -> rad (10 deg = 0.17453292519943295 rad)
+  3. clamp deg -> rad (10 deg = 0.17453292519943295 rad); SettleTracker
+     (the vacuous-reach fix): moving samples INSIDE tol never settle
+     early, static in-tol settles after N+1 feeds, out-of-tol never,
+     reset() (stale-pose gap) restarts the consecutive run
   4. Sequence harness, all actions failing: all 7 stages still run in
      order and the run COMPLETES; each failed action logs a WARN naming
      the stage; closed_ref is logged from the read-back; GRASP commands
      the direct grasp_clamp_rad (2.686); GRASP deltas are vs the OPEN
-     row; EE goal calls are hover/descend/hover/home with the home yaw
+     row; EE goal calls are hover/descend/hover/home with the home yaw;
+     DESCEND and LIFT also run the settle check (wait_settled), whose
+     failure WARNs and continues
   5. Sequence success path: reached notes, no WARNs
   6. Clamp-stall harness: close/open stall -> read-back logged short
      of cmd, GRASP still commands grasp_clamp_rad directly, run still
      completes
   7. CSV writer: header + row count + empty cells for None
   8. py_compile + py310-grammar (ast feature_version=(3, 10)) on
-     grasp_demo.py, this file, the launch file and both edited
-     setup.py files — MANDATORY: the Orin runs python3.10
+     grasp_demo.py, arm_bridge.py, this file, the launch file and both
+     edited setup.py files — MANDATORY: the Orin runs python3.10
   9. Topic-rename check: cmd_vel_serial.cpp publishes
      /gripper_pressure_reading (the old "/gripper" publisher is gone)
      and grasp_demo.py subscribes the new name
@@ -55,6 +60,7 @@ import sentinel_arm.grasp_demo as gd  # noqa: E402  (core: no ROS)
 
 GRID_JSON = ROOT / 'generated' / 'grid_5x4_tag36h11_ids18-37.json'
 GRASP_DEMO = PKG / 'sentinel_arm' / 'grasp_demo.py'
+ARM_BRIDGE = PKG / 'sentinel_arm' / 'arm_bridge.py'
 LAUNCH = (ROOT / 'ros2_ws' / 'src' / 'sentinel_bringup' / 'launch' /
           'grasp_demo.launch.py')
 ARM_SETUP = PKG / 'setup.py'
@@ -97,6 +103,7 @@ class FakeEnv:
         self.fail_clamp = fail_clamp
         self.joint_calls = []
         self.ee_calls = []
+        self.settle_calls = []
         self.clamp = None
 
     def publish_joint_clamp(self, rad):
@@ -104,13 +111,22 @@ class FakeEnv:
         self.clamp = float(rad) + (0.2 if self.fail_clamp else 0.0)
 
     def publish_ee_goal(self, xyz, yaw_rad=None):
-        self.ee_calls.append((tuple(np.asarray(xyz, dtype=float)),
-                              yaw_rad))
+        self.ee_calls.append(
+            (tuple(float(v) for v in np.asarray(xyz, dtype=float)),
+             yaw_rad))
 
     def wait_reach(self, xyz, timeout):
         if self.fail_reach:
             return False, 99.9, 'err 99.9 mm'
         return True, 1.0, 'reached, err 1.0 mm'
+
+    def wait_settled(self, xyz, timeout):
+        self.settle_calls.append(
+            (tuple(float(v) for v in np.asarray(xyz, dtype=float)),
+             timeout))
+        if self.fail_reach:
+            return False, 99.9, 'still moving (12.3 mm/sample)'
+        return True, 1.0, 'settled, err 1.0 mm'
 
     def wait_clamp(self, rad, timeout):
         if self.fail_clamp:
@@ -212,6 +228,44 @@ def test_deg_to_rad():
     print('PASS clamp deg -> rad')
 
 
+def test_settle_tracker():
+    # The vacuous-reach fix: hover/descend targets are ~20 mm apart
+    # (inside the 25 mm tol), so a plain err <= tol check passes while
+    # the arm is still moving. SettleTracker must NOT pass early on
+    # moving samples inside the tolerance, and must pass on static
+    # in-tolerance samples after SETTLE_N_SAMPLES + 1 fresh feeds.
+    cmd = np.array([0.0, 0.0, 100.0])
+    tr = gd.SettleTracker(tol=25.0)
+    # moving samples at ~20 mm err (INSIDE tol): never settles
+    p = np.array([20.0, 0.0, 100.0])
+    for step in range(12):
+        settled, err, note = tr.feed(
+            p + step * np.array([-2.0, 0.0, 0.0]), cmd)
+        assert not settled, 'moving in-tol samples must not settle'
+        assert err <= 25.0
+    assert 'still moving' in note
+    # static in-tolerance samples: settles exactly on the N+1-th feed
+    tr.reset()
+    settled = False
+    for i in range(gd.SETTLE_N_SAMPLES + 1):
+        settled, err, note = tr.feed(np.array([1.0, 0.0, 100.0]), cmd)
+        if i < gd.SETTLE_N_SAMPLES:
+            assert not settled, f'settled too early (feed {i})'
+    assert settled, 'static in-tol samples must settle'
+    assert 'settled' in note
+    # outside tolerance: never settles, however many samples
+    tr.reset()
+    for _ in range(20):
+        settled, _, _ = tr.feed(np.array([99.0, 0.0, 100.0]), cmd)
+        assert not settled, 'out-of-tol samples must not settle'
+    # a reset (stale-pose gap) breaks the consecutive run
+    tr.reset()
+    for _ in range(3):
+        settled, _, _ = tr.feed(np.array([1.0, 0.0, 100.0]), cmd)
+        assert not settled, 'consecutive run must restart after reset'
+    print('PASS settle tracker (moving in-tol does not pass early)')
+
+
 def test_sequence_all_timeouts():
     # EVERY action fails -> the run must still visit all 7 stages in
     # order, WARN per failed stage, and complete (never abort).
@@ -239,6 +293,20 @@ def test_sequence_all_timeouts():
                        target + 30.0 * normal, atol=1e-6)
     assert env.ee_calls[3][0] == (3.28, -47.44, 69.38), 'home xyz'
     assert env.ee_calls[3][1] == 3.134, 'home yaw'
+    # settle check runs after DESCEND and LIFT only (the vacuous-reach
+    # fix): both fail in this harness and must WARN + continue
+    assert [c[0] for c in env.settle_calls] == \
+        [env.ee_calls[1][0], env.ee_calls[2][0]], \
+        'settle check must follow DESCEND and LIFT (only)'
+    assert all(c[1] == PARAMS['reach_timeout']
+               for c in env.settle_calls), 'settle timeout = reach_timeout'
+    for stage in ('DESCEND', 'LIFT'):
+        assert any(lvl == 'warn' and f'{stage}: not settled' in msg
+                   for lvl, msg in logger.lines), \
+            f'{stage} settle failure must WARN'
+        row = rows[gd.STAGES.index(stage)]
+        assert 'still moving' in row['note'], \
+            f'{stage} row must carry the settle note'
     # GRASP deltas vs OPEN (pressure constant in the fake -> 0 deltas)
     grasp_row = rows[gd.STAGES.index('GRASP')]
     open_row = rows[gd.STAGES.index('OPEN')]
@@ -262,6 +330,12 @@ def test_sequence_success():
     for stage in ('HOVER', 'DESCEND', 'LIFT', 'HOME'):
         row = rows[gd.STAGES.index(stage)]
         assert 'reached' in row['note'], f'{stage} must report reached'
+    assert [c[0] for c in env.settle_calls] == \
+        [env.ee_calls[1][0], env.ee_calls[2][0]], \
+        'settle check must follow DESCEND and LIFT (only)'
+    for stage in ('DESCEND', 'LIFT'):
+        row = rows[gd.STAGES.index(stage)]
+        assert 'settled' in row['note'], f'{stage} must report settled'
     print('PASS sequence success harness')
 
 
@@ -303,7 +377,7 @@ def test_csv_writer():
 
 
 def test_py310_grammar():
-    for path in (GRASP_DEMO, LAUNCH, ARM_SETUP, BRINGUP_SETUP,
+    for path in (GRASP_DEMO, ARM_BRIDGE, LAUNCH, ARM_SETUP, BRINGUP_SETUP,
                  Path(__file__).resolve()):
         source = path.read_text()
         ast.parse(source, filename=str(path), feature_version=(3, 10))
@@ -328,6 +402,7 @@ def main():
     test_handeye_roundtrip()
     test_lift_direction_flip()
     test_deg_to_rad()
+    test_settle_tracker()
     test_sequence_all_timeouts()
     test_sequence_success()
     test_clamp_stall_continues()

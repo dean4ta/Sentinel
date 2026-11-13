@@ -107,6 +107,10 @@ class ArmBridge(Node):
                     continue
                 if d.get('T') == 1051:
                     self.ready = True
+                    self.get_logger().info(
+                        'Arm bridge READY (handshake complete) — '
+                        'arm/ee_goals and arm/joint_goals accepted; '
+                        'safe to trigger /grasp/start')
                     self._handle_line(line.decode(errors='replace').strip())
             time.sleep(0.2)
         if not self.ready:
@@ -180,6 +184,17 @@ class ArmBridge(Node):
         self._write('{"T":105}')
 
     def _goal_cb(self, msg):
+        # T:101 per-joint moves: same readiness gate as _ee_goal_cb —
+        # a command during the boot drain can wedge the handshake
+        # (see _rx_loop), so goals arriving before READY are dropped.
+        if not self.ready:
+            now = time.time()
+            if now - self._last_not_ready_warn >= 1.0:
+                self.get_logger().warn(
+                    'ignoring arm/joint_goals — arm not ready yet '
+                    '(boot drain still running)')
+                self._last_not_ready_warn = now
+            return
         for name, rad in zip(msg.name, msg.position):
             if name in JOINT_IDS:
                 spd = self.get_parameter('spd').value
