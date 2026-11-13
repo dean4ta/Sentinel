@@ -136,14 +136,14 @@ SETTLE_DELTA_MM = 2.0
 
 DETECT_MAX_AGE_S = 5.0      # grid verification older than this: stale
 
-# Deployed-Orin defaults (the same paths the T004-T006 tools use).
-DEFAULT_GRID_JSON = ('/home/sentinel1/dean/hand_eye/'
+# Deployed-Orin defaults (Sentinel/ work root, per user rule 2026-11-13).
+DEFAULT_GRID_JSON = ('/home/sentinel1/dean/Sentinel/hand_eye/'
                      'grid_5x4_tag36h11_ids18-37.json')
-DEFAULT_HANDEYE = '/home/sentinel1/dean/hand_eye/handeye.yaml'
-DEFAULT_CAMERA_MATRIX = ('/home/sentinel1/dean/camera_calibration/'
+DEFAULT_HANDEYE = '/home/sentinel1/dean/Sentinel/hand_eye/handeye.yaml'
+DEFAULT_CAMERA_MATRIX = ('/home/sentinel1/dean/Sentinel/camera_calibration/'
                          'camera_matrix.yaml')
 DEFAULT_CAMERA_DEVICE = '/dev/sentinel_webcam'
-DEFAULT_OUTPUT_DIR = '/home/sentinel1/dean/grasp_demo'
+DEFAULT_OUTPUT_DIR = '/home/sentinel1/dean/Sentinel/grasp_demo'
 # Home pose: EE XYZ (mm) + t (rad), hand-captured with torque off
 # (2026-10-23) — the SAME home the full bringup uses (arm 'home' param
 # in sentinel_bringup.launch.py). The demo's final HOME stage returns
