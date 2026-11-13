@@ -13,6 +13,7 @@ setup(
         ('share/' + package_name + '/launch',
             ['launch/fusion.launch.py', 'launch/mapping.launch.py',
              'launch/sentinel_bringup.launch.py',
+             'launch/grasp_demo.launch.py',
              'launch/localization.launch.py',
              'launch/navigation.launch.py',
              'launch/usb_interface_test.launch.py',

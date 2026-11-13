@@ -129,7 +129,7 @@ public:
       [this](const String::SharedPtr m) {wheel_cmd_cb(m);});
     encoder_pub_ = create_publisher<EncoderCounts>("/encoder", 10);
     wheel_speeds_pub_ = create_publisher<WheelSpeeds>("/wheel_speeds", 10);
-    gripper_pub_ = create_publisher<GripperSensors>("/gripper", 10);
+    gripper_pub_ = create_publisher<GripperSensors>("/gripper_pressure_reading", 10);
 
     auto now = get_clock()->now();
     last_wheel_cmd_ = now;
