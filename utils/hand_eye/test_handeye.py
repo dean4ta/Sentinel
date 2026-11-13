@@ -68,7 +68,7 @@ try:
 except ImportError:  # pragma: no cover — Mac selftest has no ROS
     HAVE_ROS = False
 
-DEFAULT_HANDEYE = '~/dean/hand_eye/handeye.yaml'
+DEFAULT_HANDEYE = '/home/sentinel1/dean/Sentinel/hand_eye/handeye.yaml'
 DEFAULT_GRID_NAME = 'grid_5x4_tag36h11_ids18-37.json'
 POSE_MAX_AGE_S = 1.0     # fresh = arm/ee_pose younger than this
 N_TARGETS = 12

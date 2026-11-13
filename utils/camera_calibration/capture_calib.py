@@ -33,7 +33,7 @@ try:
 except ImportError:  # pragma: no cover — the Orin has it
     Detector = None
 
-DEFAULT_OUTDIR = "/home/sentinel1/dean/camera_calibration/images"
+DEFAULT_OUTDIR = "/home/sentinel1/dean/Sentinel/camera_calibration/images"
 DEFAULT_CAM = "/dev/sentinel_webcam"
 DARK_THRESHOLD = 5.0
 

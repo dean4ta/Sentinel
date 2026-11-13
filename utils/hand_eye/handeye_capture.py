@@ -75,8 +75,8 @@ except ImportError:  # pragma: no cover — Mac selftest has no ROS
     HAVE_ROS = False
 
 DEFAULT_CAM = '/dev/sentinel_webcam'
-DEFAULT_OUTDIR = '/home/sentinel1/dean/hand_eye'
-DEFAULT_CAMERA_MATRIX = ('/home/sentinel1/dean/camera_calibration/'
+DEFAULT_OUTDIR = '/home/sentinel1/dean/Sentinel/hand_eye'
+DEFAULT_CAMERA_MATRIX = ('/home/sentinel1/dean/Sentinel/camera_calibration/'
                          'camera_matrix.yaml')
 DEFAULT_GRID = 'grid_5x4_tag36h11_ids18-37.json'  # next to this script
 DARK_THRESHOLD = 5.0
