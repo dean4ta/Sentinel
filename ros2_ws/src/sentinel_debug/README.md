@@ -1,11 +1,14 @@
 # sentinel_debug
 
-Debug/verification tools for the Sentinel 1 nav stack. First tool: the
-**long-goal stress test**.
+Debug/verification tools for the Sentinel 1 nav stack.
 
-## What it does
+1. **long-goal stress test** (`goal_stress_test`, T011)
+2. **step recorder** (`step_recorder`, T012) — CSV capture of the
+   controller-level step tests for the Mac-side analysis.
 
-`goal_stress_test` publishes ONE `/goal_pose` while bagging and
+## goal_stress_test
+
+Publishes ONE `/goal_pose` while bagging and
 monitoring the evidence topics. The DEFAULT run is healthy: the goal is
 12 m ahead of the robot's **current** amcl pose (map frame, current
 heading, fresh stamp) — the robot really drives 12 m forward. The
@@ -89,17 +92,42 @@ bag (metadata.yaml + storage). The node also runs standalone:
 forward from its current pose. Clear the space, stand behind the robot,
 and be ready on the E-stop.
 
+## step_recorder (T012)
+
+Records the step-test topics as CSVs for the Mac-side analysis
+(`utils/controller_level_analysis.py` — the Mac has no ROS/rosbag2, so
+the bag is not enough). One CSV per topic in `data/controller_level_<level>/`:
+
+| CSV | topic | columns |
+|-----|-------|---------|
+| `wheel_speeds.csv` | `/wheel_speeds` | `t` + all 16 `WheelSpeeds` fields (target / measured filtered / measured raw / cmd rpm per wheel) |
+| `wheel_odom.csv` | `/wheel_odom` | `t`, `x`, `y`, `yaw`, `vx`, `wz` |
+| `wheel_imu_odom_filtered.csv` | `/wheel_imu_odom_filtered` | same odom schema |
+| `step_events.csv` | `/step_events` | `t`, `index`, `target_mps`, `sine` |
+
+`t` is the msg header stamp (odometry) or the receive time
+(`WheelSpeeds`/`StepEvent` have no header). Flushed every 1 s and closed
+on shutdown, so a Ctrl-C'd run keeps its data. Normally launched by
+`step_test.launch.py` (`controller_level:=...`); standalone:
+`ros2 run sentinel_debug step_recorder --ros-args -p level:=ffpid
+-p out_dir:=data/controller_level_ffpid`.
+
 ## Mac selftest
 
 ```bash
 cd ros2_ws/src/sentinel_debug
 python3 test/test_goal_stress_test.py   # expect: ALL PASS
+python3 test/test_step_recorder.py      # expect: ALL PASS
 ```
 
-No ROS needed: the test AST-extracts everything above the `import rclpy`
-seam in `goal_stress_test.py` (stamp truncation, `is_interesting`,
-`goal_from_pose` + quaternion helpers, `choose_pose` pose-source
-decision, bag-dir uniqueness, defaults, log/summary formatting, status
-names, bag command), exercises it with plain asserts, checks the
-launch-file defaults via AST, and grammar/bytecode-checks the module and
-the launch file.
+No ROS needed: the tests AST-extract everything above the `import rclpy`
+seam in `goal_stress_test.py` / `step_recorder.py` (and above the
+`import numpy` seam in `utils/controller_level_analysis.py`) — stamp
+truncation, `is_interesting`, `goal_from_pose` + quaternion helpers,
+`choose_pose` pose-source decision, bag-dir uniqueness, defaults,
+log/summary formatting, status names, bag command (goal stress test);
+CSV row formatting + field order, yaw-from-quaternion, odom-fallback
+selection, step-event parsing, level-dir naming, a recorder-write ->
+analysis-parse round trip, and the `controller_level` launch-file
+defaults (step recorder) — with plain asserts, plus grammar/
+bytecode-checks of the modules and launch files.

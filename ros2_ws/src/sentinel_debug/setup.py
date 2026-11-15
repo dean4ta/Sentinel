@@ -17,11 +17,13 @@ setup(
     zip_safe=True,
     maintainer='Dean Fortier',
     maintainer_email='dean@example.com',
-    description='Long-goal stress test: Foxglove-mimic /goal_pose + bag + rosout monitor.',
+    description='Debug tools: long-goal stress test (T011) + step '
+                'recorder for controller-level step tests (T012).',
     license='MIT',
     entry_points={
         'console_scripts': [
             'goal_stress_test = sentinel_debug.goal_stress_test:main',
+            'step_recorder = sentinel_debug.step_recorder:main',
         ],
     },
 )

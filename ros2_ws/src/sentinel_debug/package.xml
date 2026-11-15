@@ -3,13 +3,15 @@
 <package format="3">
   <name>sentinel_debug</name>
   <version>0.1.0</version>
-  <description>Long-goal stress test: publish a Foxglove-mimic /goal_pose and record the evidence that the goal dies in the TF buffer.</description>
+  <description>Debug tools: long-goal stress test (T011) + step recorder for controller-level step tests (T012).</description>
   <maintainer email="dean@example.com">Dean Fortier</maintainer>
   <license>MIT</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sentinel_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>action_msgs</exec_depend>
   <exec_depend>rcl_interfaces</exec_depend>
