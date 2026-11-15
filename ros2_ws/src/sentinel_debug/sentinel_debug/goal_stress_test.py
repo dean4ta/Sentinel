@@ -5,9 +5,11 @@ What this runs
 --------------
 Publishes ONE /goal_pose while bagging + monitoring the evidence topics.
 The default run is HEALTHY: the goal is `distance` m ahead of the robot's
-CURRENT amcl pose, in the map frame, along the current heading, with a
-fresh stamp — the robot really drives `distance` m. The Foxglove mimic is
-explicit: frame:=base_link truncate_stamp:=true.
+CURRENT pose — taken from TF (map <- base_link, latest time), with the
+latest /amcl_pose as a regardless-of-age fallback — in the map frame,
+along the current heading, with a fresh stamp; the robot really drives
+`distance` m. The Foxglove mimic is explicit: frame:=base_link
+truncate_stamp:=true.
 
 Root-cause findings (first on-robot run + supervisor diagnosis)
 ---------------------------------------------------------------
@@ -22,17 +24,27 @@ Root-cause findings (first on-robot run + supervisor diagnosis)
    falls out of the TF buffer (nav2 default) -> "Extrapolation Error" ->
    planner abort -> recoveries -> "Goal failed".
 
+Pose source
+-----------
+TF, not /amcl_pose freshness: AMCL stops publishing /amcl_pose when the
+robot is stationary (update gates), so a freshness gate wrongly refuses
+to publish. The goal pose comes from lookupTransform('map', 'base_link',
+Time(0)); if TF is unavailable the latest /amcl_pose is used regardless
+of age (warned when older than STALE_AMCL_SEC); publishing is refused
+only when NEITHER source exists after AMCL_WAIT_SEC.
+
 Evidence
 --------
 * `ros2 bag record` (CLI subprocess only, no rosbag2 python dependency)
   captures /goal_pose /tf /tf_static /plan /cmd_vel /amcl_pose
-  /navigate_to_pose/_action/status /rosout,
+  /navigate_to_pose/_action/status /rosout, into
+  ~/bags/goal_stress_<timestamp>_<pid> (deduplicated with -2/-3 suffixes),
 * /rosout is filtered to <bag_dir>/rosout_filtered.txt (every line,
   prefixed with its stamp + node name); any line matching 'Extrapolation'
   / 'transformPoseInTargetFrame' / 'Aborting' (case-insensitive) prints
   live,
 * /navigate_to_pose/_action/status transitions are logged with timestamps
-  and a heartbeat prints every 5 s (state + distance driven).
+  and a heartbeat prints every 5 s (state + distance driven, from TF).
 
 Run (bringup already up):
   ros2 launch sentinel_debug goal_stress_test.launch.py   # healthy default
@@ -54,8 +66,8 @@ DEFAULT_TRUNCATE_STAMP = False
 DEFAULT_DISTANCE = 12.0
 DEFAULT_DURATION = 60.0
 
-FRESH_AMCL_SEC = 2.0   # /amcl_pose stamp must be younger than this
-AMCL_WAIT_SEC = 10.0   # how long to wait for a fresh pose before refusing
+STALE_AMCL_SEC = 5.0   # fallback /amcl_pose older than this gets a warning
+AMCL_WAIT_SEC = 10.0   # how long to wait for a pose source before refusing
 
 BAG_TOPICS = [
     '/goal_pose',
@@ -146,7 +158,7 @@ def yaw_from_quat(q):
 def goal_from_pose(pose, distance, frame):
     """Goal spec for `distance` m ahead of the robot's CURRENT pose.
 
-    pose: (x, y, yaw) — the current amcl pose in the map frame.
+    pose: (x, y, yaw) — the current robot pose (normally TF-derived).
     frame 'map': x + distance*cos(yaw), y + distance*sin(yaw), quaternion
       from yaw, frame 'map' — the healthy default the planner can consume
       directly (no re-transform of a stale stamp).
@@ -168,10 +180,44 @@ def goal_from_pose(pose, distance, frame):
             'quat': quat_from_yaw(yaw), 'frame': 'map'}
 
 
+def choose_pose(tf_ok, amcl_age):
+    """Pick the goal-pose source (pure decision).
+
+    tf_ok: a TF lookup succeeded (map <- base_link, latest time).
+    amcl_age: age in seconds of the latest /amcl_pose message, or None if
+    no message ever arrived.
+    Returns (source, warning): source is 'tf' / 'amcl' / None (refuse),
+    warning is text for the caller to log, or None.
+    """
+    if tf_ok:
+        return ('tf', None)
+    if amcl_age is not None:
+        if amcl_age > STALE_AMCL_SEC:
+            return ('amcl', f'/amcl_pose fallback is stale '
+                            f'({amcl_age:.1f} s old); using it anyway')
+        return ('amcl', None)
+    return (None, 'no TF (map <- base_link) and no /amcl_pose — '
+                  'refusing to publish the goal')
+
+
 def default_bag_dir():
-    """~/bags/goal_stress_<timestamp> (local wall clock)."""
+    """~/bags/goal_stress_<YYYYmmdd_HHMMSS>_<pid> — the PID keeps two runs
+    started in the same second distinct."""
     return os.path.expanduser(
-        '~/bags/goal_stress_' + time.strftime('%Y%m%d_%H%M%S'))
+        '~/bags/goal_stress_' + time.strftime('%Y%m%d_%H%M%S')
+        + f'_{os.getpid()}')
+
+
+def unique_bag_dir(base):
+    """`base` if nothing exists there yet, else base-2, base-3, ... —
+    bag dirs must never collide (rosbag2 would append into an existing
+    dir instead of failing)."""
+    candidate = base
+    n = 1
+    while os.path.exists(candidate):
+        n += 1
+        candidate = f'{base}-{n}'
+    return candidate
 
 
 def bag_command(bag_dir):
@@ -203,7 +249,8 @@ def build_summary(goal_frame, truncated, distance, duration, goal_published,
     if goal_published:
         goal_line = f'  goal: published x=+{distance} m in {goal_frame}'
     else:
-        goal_line = '  goal: NOT published (no fresh /amcl_pose)'
+        goal_line = ('  goal: NOT published '
+                     '(no pose source: TF and /amcl_pose unavailable)')
     lines = [
         'goal stress test summary',
         goal_line,
@@ -237,6 +284,7 @@ from rclpy.time import Time
 from action_msgs.msg import GoalStatusArray
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Quaternion
 from rcl_interfaces.msg import Log
+from tf2_ros import Buffer, TransformListener
 
 BAG_WARMUP_SEC = 2.0
 HEARTBEAT_SEC = 5.0
@@ -258,10 +306,15 @@ class GoalStressNode(Node):
         self.truncate_stamp = bool(self.get_parameter('truncate_stamp').value)
         self.duration = float(self.get_parameter('duration').value)
         bag_dir = str(self.get_parameter('bag_dir').value)
-        self.bag_dir = bag_dir or default_bag_dir()
+        self.bag_dir = bag_dir or unique_bag_dir(default_bag_dir())
         self.rosout_path = os.path.join(self.bag_dir, 'rosout_filtered.txt')
 
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
+
         self._goal_pub = self.create_publisher(PoseStamped, '/goal_pose', 10)
+        # /amcl_pose is kept ONLY as the fallback goal-pose source (TF is
+        # primary); heartbeat distance uses TF as well.
         self.create_subscription(
             PoseWithCovarianceStamped, '/amcl_pose', self._amcl_cb, 10)
         # /rosout depth 100: the bringup is chatty; drop nothing relevant.
@@ -279,7 +332,6 @@ class GoalStressNode(Node):
         self._first_interesting_wall = None
         self._last_status = None
         self._start_pos = None
-        self._latest_pos = None
         self._t0 = time.monotonic()
         self._last_heartbeat = self._t0
 
@@ -287,8 +339,6 @@ class GoalStressNode(Node):
 
     def _amcl_cb(self, msg):
         self._amcl_msg = msg
-        pos = msg.pose.pose.position
-        self._latest_pos = (pos.x, pos.y)
 
     def _rosout_cb(self, msg):
         # Skip our own log lines: echoing an interesting line through the
@@ -327,42 +377,69 @@ class GoalStressNode(Node):
 
     # ---- run ----
 
+    def _tf_pose_xy(self):
+        """Current (x, y) from TF (map <- base_link, latest), or None."""
+        try:
+            tf = self._tf_buffer.lookup_transform('map', 'base_link', Time())
+        except Exception:
+            return None
+        return (tf.transform.translation.x, tf.transform.translation.y)
+
     def _heartbeat(self):
         dist = None
-        if self._start_pos is not None and self._latest_pos is not None:
+        pos = self._tf_pose_xy()
+        if self._start_pos is not None and pos is not None:
             dist = math.hypot(
-                self._latest_pos[0] - self._start_pos[0],
-                self._latest_pos[1] - self._start_pos[1])
+                pos[0] - self._start_pos[0], pos[1] - self._start_pos[1])
         state = self._last_status or '(no status yet)'
         print(heartbeat_line(time.monotonic() - self._t0, state, dist))
 
-    def _pose_age_sec(self, msg):
-        """Age of an /amcl_pose message stamp in seconds (>= 0)."""
+    def _amcl_age_sec(self):
+        """Age of the latest /amcl_pose stamp in seconds (>= 0)."""
         now = self.get_clock().now()
-        stamp = Time.from_msg(msg.header.stamp)
+        stamp = Time.from_msg(self._amcl_msg.header.stamp)
         return max(0.0, (now - stamp).nanoseconds / 1e9)
 
-    def _wait_fresh_amcl(self):
-        """Spin until /amcl_pose arrives with a stamp younger than
-        FRESH_AMCL_SEC. Returns the message, or None after AMCL_WAIT_SEC."""
+    def _goal_pose_sources(self):
+        """Pose source: TF first (map <- base_link, latest), /amcl_pose
+        fallback. Returns (pose, source, warning): pose is (x, y, yaw) or
+        None (refuse)."""
+        try:
+            tf = self._tf_buffer.lookup_transform('map', 'base_link', Time())
+        except Exception:
+            tf = None
+        if tf is not None:
+            tr = tf.transform
+            return ((tr.translation.x, tr.translation.y,
+                     yaw_from_quat(tr.rotation)), 'tf', None)
+        amcl_age = (self._amcl_age_sec()
+                    if self._amcl_msg is not None else None)
+        source, warning = choose_pose(False, amcl_age)
+        if source == 'amcl':
+            p = self._amcl_msg.pose.pose
+            return ((p.position.x, p.position.y,
+                     yaw_from_quat(p.orientation)), 'amcl', warning)
+        return (None, None, warning)
+
+    def _wait_goal_pose(self):
+        """Spin up to AMCL_WAIT_SEC for TF (map <- base_link); after the
+        window fall back to /amcl_pose regardless of age. Refuse only if
+        NEITHER source is available. Returns (pose, source, warning)."""
         deadline = time.monotonic() + AMCL_WAIT_SEC
         while rclpy.ok() and time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=0.05)
-            msg = self._amcl_msg
-            if msg is not None and self._pose_age_sec(msg) < FRESH_AMCL_SEC:
-                return msg
-        return None
+            pose, source, warning = self._goal_pose_sources()
+            if source == 'tf':
+                return pose, source, warning
+        return self._goal_pose_sources()
 
-    def _publish_goal(self, amcl_msg):
+    def _publish_goal(self, pose, source):
         """Publish the ONE goal `distance` m ahead of the robot's CURRENT
-        amcl pose (map frame) or ahead of the robot itself (base_link),
-        with an optional whole-second stamp truncation. Published exactly
+        pose (map frame) or ahead of the robot itself (base_link), with
+        an optional whole-second stamp truncation. Published exactly
         once: a second publish would reset the evidence clock and mask
         the bug."""
-        p = amcl_msg.pose.pose
-        yaw = yaw_from_quat(p.orientation)
-        spec = goal_from_pose(
-            (p.position.x, p.position.y, yaw), self.distance, self.frame)
+        spec = goal_from_pose(pose, self.distance, self.frame)
         now = self.get_clock().now().to_msg()
         goal = PoseStamped()
         goal.header.frame_id = spec['frame']
@@ -377,11 +454,11 @@ class GoalStressNode(Node):
         goal.pose.orientation = Quaternion(**spec['quat'])
         self._goal_pub.publish(goal)
         self._goal_published = True
-        self._start_pos = self._latest_pos  # heartbeat distance resets here
+        self._start_pos = (pose[0], pose[1])  # heartbeat distance resets here
         self.get_logger().info(
             f'published /goal_pose: ({spec["x"]:.2f}, {spec["y"]:.2f}) in '
-            f'{spec["frame"]} (robot pose ({p.position.x:.2f}, '
-            f'{p.position.y:.2f}), yaw {yaw:.2f}), stamp '
+            f'{spec["frame"]} from {source} pose '
+            f'({pose[0]:.2f}, {pose[1]:.2f}), yaw {pose[2]:.2f}), stamp '
             f'{goal.header.stamp.sec}.{goal.header.stamp.nanosec:09d} '
             f'({"truncated" if self.truncate_stamp else "fresh"})')
 
@@ -410,18 +487,20 @@ class GoalStressNode(Node):
                 'no subscribers on /goal_pose; the goal may be missed '
                 '(is bt_navigator up?)')
 
-        # The goal is `distance` m ahead of the robot's CURRENT pose, so
-        # it must be anchored to a FRESH /amcl_pose — a stale pose would
-        # send the robot to an old location (the immediate-recovery bug
-        # from the first run).
-        amcl_msg = self._wait_fresh_amcl()
-        if amcl_msg is None:
+        # The goal is `distance` m ahead of the robot's CURRENT pose:
+        # TF (map <- base_link) is the live source — AMCL stops
+        # publishing /amcl_pose when the robot is stationary (update
+        # gates) — with the latest /amcl_pose as a regardless-of-age
+        # fallback. Refuse only if neither exists.
+        pose, source, warning = self._wait_goal_pose()
+        if pose is None:
             self.get_logger().warn(
-                f'no fresh /amcl_pose (stamp < {FRESH_AMCL_SEC} s) within '
-                f'{AMCL_WAIT_SEC} s — REFUSING to publish the goal; '
-                'monitoring continues without a goal')
+                (warning or 'no pose source') + ' — REFUSING to publish '
+                'the goal; monitoring continues without a goal')
         else:
-            self._publish_goal(amcl_msg)
+            if warning:
+                self.get_logger().warn(warning)
+            self._publish_goal(pose, source)
 
         while rclpy.ok() and time.monotonic() - start < self.duration:
             rclpy.spin_once(self, timeout_sec=0.05)

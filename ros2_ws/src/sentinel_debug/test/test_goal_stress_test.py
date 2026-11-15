@@ -8,8 +8,9 @@ never executes the whole module. It:
 1. ast.parse()s the source with feature_version=(3, 10) — py310 grammar check.
 2. Extracts everything ABOVE the first `import rclpy` statement (the pure
    section: stamp truncation, is_interesting, goal_from_pose orientation
-   math, log/summary formatting, status names, bag command, defaults) and
-   compiles it standalone.
+   math, choose_pose pose-source decision, bag-dir uniqueness, log/summary
+   formatting, status names, bag command, defaults) and compiles it
+   standalone.
 3. Exercises the contracts with plain asserts.
 4. Checks the launch file defaults (AST of the DeclareLaunchArgument
    calls) and py_compile-compiles the full module and the launch file
@@ -24,6 +25,7 @@ import math
 import pathlib
 import py_compile
 import re
+import tempfile
 import types
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -87,7 +89,9 @@ def main():
     quat_from_yaw = m.quat_from_yaw
     yaw_from_quat = m.yaw_from_quat
     goal_from_pose = m.goal_from_pose
+    choose_pose = m.choose_pose
     default_bag_dir = m.default_bag_dir
+    unique_bag_dir = m.unique_bag_dir
     bag_command = m.bag_command
     latest_status = m.latest_status
     build_summary = m.build_summary
@@ -98,7 +102,7 @@ def main():
     assert m.DEFAULT_TRUNCATE_STAMP is False
     assert m.DEFAULT_DISTANCE == 12.0
     assert m.DEFAULT_DURATION == 60.0
-    assert m.FRESH_AMCL_SEC == 2.0
+    assert m.STALE_AMCL_SEC == 5.0
     assert m.AMCL_WAIT_SEC == 10.0
     defaults = launch_defaults()
     assert defaults.get('frame') == 'map'
@@ -174,6 +178,16 @@ def main():
     except ValueError:
         pass
 
+    # --- choose_pose: TF preferred, amcl fallback, refuse if neither ---
+    assert choose_pose(True, None) == ('tf', None)
+    assert choose_pose(True, 999.0) == ('tf', None)  # TF wins over stale amcl
+    assert choose_pose(False, 3.0) == ('amcl', None)
+    assert choose_pose(False, 5.0) == ('amcl', None)  # 5 s is not > 5 s
+    source, warn = choose_pose(False, 30.0)
+    assert source == 'amcl' and warn and 'stale' in warn
+    source, warn = choose_pose(False, None)
+    assert source is None and warn and 'refus' in warn
+
     # --- log line format: stamp + node name prefix ---
     line = format_log_line((123, 4), 'bt_navigator', 'hello')
     assert line == '[123.000000004] bt_navigator: hello'
@@ -208,10 +222,21 @@ def main():
     assert latest_status(
         [_status(1, 0, 2), _status(1, 0, 6)]).status == 2
 
-    # --- default bag dir shape: ~/bags/goal_stress_<timestamp> ---
+    # --- bag dir: ~/bags/goal_stress_<timestamp>_<pid>, never colliding ---
     d = default_bag_dir()
     assert d.startswith(str(pathlib.Path.home()) + '/bags/goal_stress_')
-    assert re.fullmatch(r'.*_20\d{6}_\d{6}', d), d
+    assert re.fullmatch(r'.*_20\d{6}_\d{6}_\d+', d), d
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = pathlib.Path(tmp)
+        base = tmp / 'bag'
+        assert unique_bag_dir(str(base)) == str(base)  # nothing exists yet
+        base.mkdir()
+        assert unique_bag_dir(str(base)) == f'{base}-2'
+        pathlib.Path(f'{base}-2').mkdir()
+        assert unique_bag_dir(str(base)) == f'{base}-3'
+        f = tmp / 'f'
+        f.write_text('x')  # a file counts as existing too
+        assert unique_bag_dir(str(f)) == f'{f}-2'
 
     # --- summary text ---
     s = build_summary(
@@ -239,13 +264,14 @@ def main():
     assert '14:03:22' not in s2
     assert 'final navigate_to_pose status: SUCCEEDED' in s2
 
-    # refusal path: no fresh amcl -> goal not published, stated plainly
+    # refusal path: neither pose source -> goal not published, stated plainly
     s3 = build_summary(
         goal_frame='map', truncated=False, distance=12.0, duration=60.0,
         goal_published=False, extrapolation_seen=False,
         first_interesting_wall=None, final_status='(no status seen)',
         rosout_path='/tmp/z/r.txt', bag_dir='/tmp/z')
-    assert 'goal: NOT published (no fresh /amcl_pose)' in s3
+    assert 'goal: NOT published' in s3
+    assert 'no pose source: TF and /amcl_pose unavailable' in s3
 
     # --- py310 grammar + bytecode: module and launch file ---
     py_compile.compile(str(SRC), doraise=True)

@@ -11,11 +11,14 @@ monitoring the evidence topics. The DEFAULT run is healthy: the goal is
 heading, fresh stamp) — the robot really drives 12 m forward. The
 Foxglove mimic is an explicit opt-in:
 
-* Goal creation: waits for a FRESH `/amcl_pose` (stamp < 2 s old, up to
-  10 s — warns and refuses to publish if it never arrives), then
-  computes the goal with the pure helper `goal_from_pose(pose, distance,
-  frame)`: map frame → `x + d·cos(yaw)`, `y + d·sin(yaw)`, orientation
-  from yaw; base_link → x = distance, identity orientation.
+* Goal creation: the robot pose comes from TF (`map <- base_link`,
+  latest time) — AMCL stops publishing `/amcl_pose` when the robot is
+  stationary (update gates), so TF is the live source. If TF is
+  unavailable, the latest `/amcl_pose` is used regardless of age (warned
+  when > 5 s old); publishing is refused only when neither source exists
+  after 10 s. `goal_from_pose(pose, distance, frame)` then computes the
+  goal: map frame → `x + d·cos(yaw)`, `y + d·sin(yaw)`, orientation from
+  yaw; base_link → x = distance, identity orientation.
 * Runs `ros2 bag record` as a subprocess (rosbag2 via CLI only, no
   rosbag2 Python dependency) on: `/goal_pose /tf /tf_static /plan
   /cmd_vel /amcl_pose /navigate_to_pose/_action/status /rosout`.
@@ -75,7 +78,8 @@ Launch args (underscores, not dashes):
 | `duration` | `60.0` | run length in seconds |
 | `distance` | `12.0` | goal distance ahead, in meters |
 
-Artifacts land in `~/bags/goal_stress_<timestamp>/`:
+Artifacts land in `~/bags/goal_stress_<timestamp>_<pid>/` (unique per
+run; `-2`/`-3` suffixes if a collision somehow occurs):
 `rosout_filtered.txt` (grep it for `Extrapolation` / `Aborting`) plus the
 bag (metadata.yaml + storage). The node also runs standalone:
 `ros2 run sentinel_debug goal_stress_test --ros-args -p frame:=base_link
@@ -94,7 +98,8 @@ python3 test/test_goal_stress_test.py   # expect: ALL PASS
 
 No ROS needed: the test AST-extracts everything above the `import rclpy`
 seam in `goal_stress_test.py` (stamp truncation, `is_interesting`,
-`goal_from_pose` + quaternion helpers, defaults, log/summary formatting,
-status names, bag command), exercises it with plain asserts, checks the
+`goal_from_pose` + quaternion helpers, `choose_pose` pose-source
+decision, bag-dir uniqueness, defaults, log/summary formatting, status
+names, bag command), exercises it with plain asserts, checks the
 launch-file defaults via AST, and grammar/bytecode-checks the module and
 the launch file.
