@@ -11,6 +11,12 @@ its 'ROS wiring' seam, so this test never executes the whole module. It:
 3. Exercises the contracts with plain asserts.
 4. py_compile-compiles the full module (bytecode only; imports never run).
 
+Testability limit: the NavigateToPose cancel paths (Ctrl+C mid-goal,
+goal_timeout cancel-and-flush, late-accepted goal done-callback) are pure
+ROS-side wiring with no Mac-testable logic, so they are covered by the
+robot-side verify procedure in AGENT_WORKFLOW/handoffs/T010.md instead of
+asserts here.
+
 Run (Mac, no ROS needed):
   uv run --with pyyaml python3 test/test_nav_waypoint_teach_repeat.py
 """

@@ -361,6 +361,9 @@ class NavWaypointNode(Node):
         self.goal_timeout = float(self.get_parameter('goal_timeout').value)
         self.waypoint_dir = self.get_parameter('waypoint_dir').value
         self._in_flight = None
+        # (send_fut, tracked) pairs for goal sends we abandoned on timeout:
+        # a done-callback cancels the goal if the server accepts it late.
+        self._pending_sends = []
 
         if mode == 'teach':
             self.session = TeachSession()
@@ -497,6 +500,14 @@ class NavWaypointNode(Node):
 
         Returns (succeeded, reason, detail): detail is extra bt_navigator
         error text ('' if none).
+
+        Cancellation contract: no path may leave a goal able to keep
+        executing on bt_navigator after we stop watching it. Goals timed
+        out mid-flight are canceled and the cancellation is flushed before
+        we return; a Ctrl+C mid-goal cancels and leaves self._in_flight set
+        so cancel_in_flight() flushes the cancel before shutdown; goals
+        accepted only after we gave up are canceled by a done-callback on
+        the send future (fired by any later spin).
         """
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = 'map'
@@ -507,18 +518,42 @@ class NavWaypointNode(Node):
         goal.pose.pose.orientation = Quaternion(
             **goal_orientation(self.state.waypoints, index))
 
+        tracked = {'abandoned': False}
         send_fut = self._client.send_goal_async(goal)
+        self._pending_sends.append((send_fut, tracked))
+
+        def _cancel_if_late(fut):
+            # Goal accepted only after we abandoned the send on timeout:
+            # cancel it before it can execute unwatched. Fires on whichever
+            # spin happens after the late acceptance (a retry attempt's
+            # loop, _cancel_and_flush, or cancel_in_flight).
+            if not tracked['abandoned']:
+                return
+            try:
+                handle = fut.result()
+                if handle.accepted:
+                    handle.cancel_goal_async()
+            except Exception:
+                self.get_logger().warn(
+                    'late-accepted goal cancel failed; next goal preempts')
+
+        send_fut.add_done_callback(_cancel_if_late)
+
         deadline = self.get_clock().now() + Duration(seconds=self.goal_timeout)
         while rclpy.ok() and not send_fut.done():
             if self.get_clock().now() > deadline:
                 # Acceptance did not arrive in time. Give the server a short
-                # grace to accept so we can cancel the goal instead of
-                # leaving it to execute unwatched; a goal that appears even
-                # later is preempted by the next attempt's goal (bt_navigator
-                # preempts on a new goal).
+                # grace to accept so we can cancel the goal ourselves; a
+                # goal accepted even later is canceled by _cancel_if_late
+                # (needs a spin, which every later attempt and
+                # cancel_in_flight provide). Residual window: acceptance
+                # later than the grace AND after the node has shut down —
+                # bt_navigator taking >1 min to accept a goal is wedged,
+                # and the goal would at worst drive to a taught waypoint.
                 grace = deadline + Duration(seconds=2.0)
                 while rclpy.ok() and not send_fut.done():
                     if self.get_clock().now() > grace:
+                        tracked['abandoned'] = True
                         return False, 'timeout', ''
                     rclpy.spin_once(self, timeout_sec=0.05)
                 break
@@ -527,18 +562,21 @@ class NavWaypointNode(Node):
         if not handle.accepted:
             return False, 'rejected', ''
         if self.get_clock().now() > deadline:
-            # Accepted only after the deadline: cancel immediately.
-            handle.cancel_goal_async()
+            # Accepted only after the deadline: cancel it ourselves and
+            # flush the cancellation before the retry.
+            self._cancel_and_flush(handle)
             return False, 'timeout', ''
         self._in_flight = handle
         try:
             result_fut = handle.get_result_async()
             while rclpy.ok() and not result_fut.done():
                 if self.get_clock().now() > deadline:
-                    handle.cancel_goal_async()
+                    self._cancel_and_flush(handle)
+                    self._in_flight = None
                     return False, 'timeout', ''
                 rclpy.spin_once(self, timeout_sec=0.05)
             result = result_fut.result()
+            self._in_flight = None
             # Outcome comes from the GOAL HANDLE status, not the result
             # message: on Humble NavigateToPose.result is std_msgs/Empty
             # (error_code/error_msg only exist on Iron+), while the handle
@@ -553,19 +591,39 @@ class NavWaypointNode(Node):
                 detail = (f'{reason}: {error_msg} '
                           f'(error_code {result.error_code})')
             return False, reason, detail
-        finally:
-            self._in_flight = None
+        except BaseException:
+            # Ctrl+C (or any teardown exception) mid-goal: fire the cancel
+            # now and KEEP self._in_flight set so main()'s finally can
+            # flush the cancellation out to bt_navigator via
+            # cancel_in_flight() before shutdown (re-canceling is
+            # idempotent).
+            handle.cancel_goal_async()
+            raise
 
-    def cancel_in_flight(self):
-        """Cancel any goal still running (called on Ctrl+C / teardown)."""
-        handle = self._in_flight
-        if handle is None:
-            return
+    def _cancel_and_flush(self, handle):
+        """Cancel `handle` and spin until the cancellation is delivered
+        (or a short deadline passes)."""
         handle.cancel_goal_async()
-        self._in_flight = None
         end = self.get_clock().now() + Duration(seconds=2.0)
         while rclpy.ok() and self.get_clock().now() < end:
             rclpy.spin_once(self, timeout_sec=0.05)
+
+    def cancel_in_flight(self):
+        """Cancel any goal still running (called on Ctrl+C / teardown) and
+        spin the cancellation out to bt_navigator. The spin also fires
+        late-acceptance done-callbacks so goals that accepted after we
+        abandoned them get canceled."""
+        handle = self._in_flight
+        if handle is not None:
+            handle.cancel_goal_async()
+            self._in_flight = None
+        if handle is None and not self._pending_sends:
+            return
+        end = self.get_clock().now() + Duration(seconds=2.0)
+        while rclpy.ok() and self.get_clock().now() < end:
+            rclpy.spin_once(self, timeout_sec=0.05)
+        self._pending_sends[:] = [
+            (fut, _) for fut, _ in self._pending_sends if not fut.done()]
 
 
 def main(args=None):
