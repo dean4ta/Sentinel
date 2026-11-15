@@ -16,6 +16,24 @@ V_MAX_LINEAR_MPS = 2.29
 V_MAX_ANGULAR_RADPS = 5.0
 
 
+def should_publish(prev, new, eps=1e-9):
+    """Return True if `new` differs enough from `prev` to warrant publishing.
+
+    Pure helper (no ROS imports): compares the motion-relevant fields of two
+    Twist-like objects (linear.x, linear.y, angular.z). `prev` may be None
+    (nothing published yet), in which case always publish. T009: suppresses
+    identical autorepeat twists so idle gamepad traffic cannot interleave
+    zeros into Nav2 spin-recovery commands on /cmd_vel.
+    """
+    if prev is None:
+        return True
+    return (
+        abs(new.linear.x - prev.linear.x) > eps
+        or abs(new.linear.y - prev.linear.y) > eps
+        or abs(new.angular.z - prev.angular.z) > eps
+    )
+
+
 class GamepadTwist(Node):
 
     def __init__(self):
@@ -45,6 +63,8 @@ class GamepadTwist(Node):
 
         self.create_subscription(Joy, '/joy', self.joy_cb, 10)
         self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        # Twist last sent; None until the first publish (T009 dedupe).
+        self.last_published = None
         # Raise SystemExit from a timer, not the subscription callback:
         # timer exceptions reliably tear down rclpy.spin.
         self.create_timer(0.1, self._tick_exit)
@@ -97,7 +117,12 @@ class GamepadTwist(Node):
         twist.linear.y *= self.speed_scale
         twist.angular.z *= self.speed_scale
 
-        self.pub.publish(twist)
+        # Publish only on change: autorepeat /joy messages compute the same
+        # twist, and republishing it (especially idle zeros) stomps Nav2
+        # spin commands on the shared last-writer-wins /cmd_vel sub (T009).
+        if should_publish(self.last_published, twist):
+            self.pub.publish(twist)
+            self.last_published = twist
 
 
 def main(args=None):
