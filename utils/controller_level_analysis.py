@@ -303,6 +303,35 @@ def plot_combined_odom(level_data, out_png):
     plt.close(fig)
 
 
+def plot_combined_xy_time(level_data, out_png):
+    """X vs time and Y vs time, three controller levels overlaid per
+    panel. Solid per-level categorical colors (time is already the x
+    axis, so a gradient would double-encode and muddy the overlay)."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+    fig.suptitle('Odometry components vs time: three controller levels',
+                 fontsize=12)
+    for level in LEVELS:
+        if level not in level_data or level_data[level]['odom'] is None:
+            continue
+        odom = level_data[level]['odom']
+        t = _rel(odom['t'], odom['t'][0])
+        label = (f"{LEVEL_LABELS[level]} -- "
+                 f"{level_data[level]['odom_csv'].stem}")
+        axes[0].plot(t, odom['x'], color=COLOR[level], linewidth=2.0,
+                     label=label)
+        axes[1].plot(t, odom['y'], color=COLOR[level], linewidth=2.0,
+                     label=label)
+    for ax, name in zip(axes, ('x (m)', 'y (m)')):
+        ax.set_title(f'{name} vs time')
+        ax.set_xlabel('time (s)')
+        ax.set_ylabel(name)
+        ax.grid(alpha=0.3, linewidth=0.5)
+        ax.legend(loc='best', fontsize=9)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    fig.savefig(out_png, dpi=FIG_DPI)
+    plt.close(fig)
+
+
 def load_level(level_dir):
     """{wheels, steps, odom, odom_csv} for one level dir; missing pieces
     become None instead of aborting the run."""
@@ -384,6 +413,11 @@ def main(argv=None):
            level_data[level]['odom']['t'] for level in LEVELS):
         plot_combined_odom(level_data, out_dir / '04_combined_odom.png')
         print(f'wrote {out_dir / "04_combined_odom.png"}')
+    if any(level_data.get(level, {}).get('odom') and
+           level_data[level]['odom']['t'] for level in LEVELS):
+        plot_combined_xy_time(level_data,
+                              out_dir / '05_combined_xy_time.png')
+        print(f'wrote {out_dir / "05_combined_xy_time.png"}')
 
 
 if __name__ == '__main__':
