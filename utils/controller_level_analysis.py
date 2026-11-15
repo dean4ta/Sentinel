@@ -201,6 +201,7 @@ def plot_combined_wheels(level_data, out_png):
     """FL wheel, three controller levels overlaid (target dashed)."""
     fig, ax = plt.subplots(figsize=(9, 5))
     steps = None
+    steps_t0 = None
     for level in LEVELS:
         if level not in level_data:
             continue
@@ -213,9 +214,10 @@ def plot_combined_wheels(level_data, out_png):
             ax.plot(t, wheels['fl_target'], color=TARGET_COLOR,
                     linestyle='--', linewidth=1.5, label='target')
             steps = level_data[level]['steps']
+            steps_t0 = wheels['t'][0]  # vlines share the trace's t0
     if steps and steps['t']:
         first = True
-        for event_t in _rel(steps['t'], steps['t'][0]):
+        for event_t in _rel(steps['t'], steps_t0):
             ax.axvline(event_t, color=EVENT_COLOR, linewidth=0.8,
                        linestyle=':', label='step event' if first else None)
             first = False
