@@ -1,36 +1,45 @@
 #!/usr/bin/env python3
-"""T011 goal stress test: confirm the Foxglove /goal_pose TF-buffer death.
+"""T011 goal stress test: Foxglove /goal_pose failure modes vs healthy control.
 
-Root-cause hypothesis (supervisor-diagnosed)
----------------------------------------------
-Foxglove's "click to goal" publishes /goal_pose with
-header.frame_id = 'base_link' and a whole-second stamp (nanosec = 0).
-Nav2's planner re-transforms that original stamped goal on every ~1 s
-replan cycle, and after ~10 s the stamp falls out of the TF buffer (nav2
-default 10 s lookup window). transformPoseInTargetFrame then raises
-"Extrapolation Error" -> the planner aborts -> recoveries run -> "Goal
-failed".
+What this runs
+--------------
+Publishes ONE /goal_pose while bagging + monitoring the evidence topics.
+The default run is HEALTHY: the goal is `distance` m ahead of the robot's
+CURRENT amcl pose, in the map frame, along the current heading, with a
+fresh stamp — the robot really drives `distance` m. The Foxglove mimic is
+explicit: frame:=base_link truncate_stamp:=true.
 
-This node reproduces exactly that goal (base_link frame, truncated stamp,
-12 m +X) while:
+Root-cause findings (first on-robot run + supervisor diagnosis)
+---------------------------------------------------------------
+1. IMMEDIATE recovery — the bug as observed on the first run: Foxglove's
+   click stamp is a whole-second truncation (nanosec = 0), so it is up to
+   ~1 s in the past. planner_server's transform_tolerance is 0.2 s, so
+   the FIRST plan attempt re-transforms that stamp and fails with an
+   "Extrapolation Error" instantly -> immediate recovery. This masks the
+   10 s story below.
+2. TF-buffer death: a base_link goal with a FRESH stamp re-transforms the
+   original stamped goal on every ~1 s replan, and after ~10 s the stamp
+   falls out of the TF buffer (nav2 default) -> "Extrapolation Error" ->
+   planner abort -> recoveries -> "Goal failed".
 
+Evidence
+--------
 * `ros2 bag record` (CLI subprocess only, no rosbag2 python dependency)
   captures /goal_pose /tf /tf_static /plan /cmd_vel /amcl_pose
   /navigate_to_pose/_action/status /rosout,
 * /rosout is filtered to <bag_dir>/rosout_filtered.txt (every line,
-  prefixed with its stamp + node name) and any line whose text matches the
-  diagnosis signature ('Extrapolation', 'transformPoseInTargetFrame',
-  'Aborting', case-insensitive) is printed live,
+  prefixed with its stamp + node name); any line matching 'Extrapolation'
+  / 'transformPoseInTargetFrame' / 'Aborting' (case-insensitive) prints
+  live,
 * /navigate_to_pose/_action/status transitions are logged with timestamps
-  and a heartbeat line prints every 5 s (state + distance driven).
+  and a heartbeat prints every 5 s (state + distance driven).
 
-A/B control: frame:=map truncate_stamp:=false -> the goal transforms in
-the map frame with a fresh stamp and should survive past 10 s. The robot
-really drives `distance` meters forward; clear the space and stand behind.
-
-Run:
-  ros2 launch sentinel_debug goal_stress_test.launch.py
-  ros2 launch sentinel_debug goal_stress_test.launch.py frame:=map truncate_stamp:=false
+Run (bringup already up):
+  ros2 launch sentinel_debug goal_stress_test.launch.py   # healthy default
+  ros2 launch sentinel_debug goal_stress_test.launch.py \
+      frame:=base_link truncate_stamp:=true               # Foxglove mimic
+  ros2 launch sentinel_debug goal_stress_test.launch.py \
+      frame:=base_link truncate_stamp:=false   # isolates the ~10 s death
 
 Everything above the 'ROS wiring' seam below is pure Python (no rclpy), so
 the logic tests on the Mac without ROS.
@@ -39,6 +48,14 @@ the logic tests on the Mac without ROS.
 import math
 import os
 import time
+
+DEFAULT_FRAME = 'map'
+DEFAULT_TRUNCATE_STAMP = False
+DEFAULT_DISTANCE = 12.0
+DEFAULT_DURATION = 60.0
+
+FRESH_AMCL_SEC = 2.0   # /amcl_pose stamp must be younger than this
+AMCL_WAIT_SEC = 10.0   # how long to wait for a fresh pose before refusing
 
 BAG_TOPICS = [
     '/goal_pose',
@@ -71,13 +88,16 @@ INTERESTING_SUBSTRINGS = (
     'aborting',
 )
 
+IDENTITY_QUATERNION = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0}
+
 
 def truncated_stamp(sec, nanosec):
     """Whole-second truncation of a stamp: returns (int(sec), 0).
 
     Exactly what Foxglove's click timestamp looks like: sec only, nanosec
-    zero. The stamp is then up to ~1 s older than publish time, which is
-    what lets it age out of the TF buffer ~10 s later.
+    zero. The stamp is then up to ~1 s older than publish time — already
+    past planner_server's 0.2 s transform_tolerance, which is what fails
+    the first plan attempt instantly (see module docstring).
     """
     return (int(sec), 0)
 
@@ -110,6 +130,44 @@ def status_name(code):
     return STATUS_NAMES.get(code, f'status {code}')
 
 
+def quat_from_yaw(yaw):
+    """Yaw (rad) as a dict {x, y, z, w} (roll = pitch = 0)."""
+    return {'x': 0.0, 'y': 0.0,
+            'z': math.sin(yaw / 2.0), 'w': math.cos(yaw / 2.0)}
+
+
+def yaw_from_quat(q):
+    """Yaw (rad) from a duck-typed quaternion (x, y, z, w attributes)."""
+    return math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
+
+def goal_from_pose(pose, distance, frame):
+    """Goal spec for `distance` m ahead of the robot's CURRENT pose.
+
+    pose: (x, y, yaw) — the current amcl pose in the map frame.
+    frame 'map': x + distance*cos(yaw), y + distance*sin(yaw), quaternion
+      from yaw, frame 'map' — the healthy default the planner can consume
+      directly (no re-transform of a stale stamp).
+    frame 'base_link': x = distance, y = 0, identity quaternion, frame
+      'base_link' — ahead of the robot regardless of the map pose (what
+      Foxglove publishes).
+
+    Returns {'x', 'y', 'quat', 'frame'} (quat is a dict). Any other frame
+    raises ValueError.
+    """
+    if frame == 'base_link':
+        return {'x': float(distance), 'y': 0.0,
+                'quat': dict(IDENTITY_QUATERNION), 'frame': 'base_link'}
+    if frame != 'map':
+        raise ValueError(f'unknown goal frame {frame!r}')
+    x, y, yaw = pose
+    return {'x': x + distance * math.cos(yaw),
+            'y': y + distance * math.sin(yaw),
+            'quat': quat_from_yaw(yaw), 'frame': 'map'}
+
+
 def default_bag_dir():
     """~/bags/goal_stress_<timestamp> (local wall clock)."""
     return os.path.expanduser(
@@ -136,15 +194,19 @@ def latest_status(status_list):
     return latest
 
 
-def build_summary(goal_frame, truncated, distance, duration,
+def build_summary(goal_frame, truncated, distance, duration, goal_published,
                   extrapolation_seen, first_interesting_wall, final_status,
                   rosout_path, bag_dir):
     """End-of-run summary text (pure; all inputs are plain values)."""
     stamp_mode = ('truncated whole-second (Foxglove mimic)'
-                  if truncated else 'current time (healthy A/B)')
+                  if truncated else 'fresh current time (healthy default)')
+    if goal_published:
+        goal_line = f'  goal: published x=+{distance} m in {goal_frame}'
+    else:
+        goal_line = '  goal: NOT published (no fresh /amcl_pose)'
     lines = [
         'goal stress test summary',
-        f'  goal: x=+{distance} m, frame={goal_frame}',
+        goal_line,
         f'  stamp: {stamp_mode}',
         f'  duration: {duration} s',
     ]
@@ -171,6 +233,7 @@ import subprocess
 
 import rclpy
 from rclpy.node import Node
+from rclpy.time import Time
 from action_msgs.msg import GoalStatusArray
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Quaternion
 from rcl_interfaces.msg import Log
@@ -184,10 +247,10 @@ class GoalStressNode(Node):
     def __init__(self):
         super().__init__('goal_stress_test')
 
-        self.declare_parameter('distance', 12.0)
-        self.declare_parameter('frame', 'base_link')
-        self.declare_parameter('truncate_stamp', True)
-        self.declare_parameter('duration', 60.0)
+        self.declare_parameter('distance', DEFAULT_DISTANCE)
+        self.declare_parameter('frame', DEFAULT_FRAME)
+        self.declare_parameter('truncate_stamp', DEFAULT_TRUNCATE_STAMP)
+        self.declare_parameter('duration', DEFAULT_DURATION)
         self.declare_parameter('bag_dir', '')
 
         self.distance = float(self.get_parameter('distance').value)
@@ -210,6 +273,8 @@ class GoalStressNode(Node):
         self._log_file = None
         self._log_write_failed = False
         self._bag_proc = None
+        self._goal_published = False
+        self._amcl_msg = None
         self._extrapolation_seen = False
         self._first_interesting_wall = None
         self._last_status = None
@@ -221,9 +286,8 @@ class GoalStressNode(Node):
     # ---- subscriptions ----
 
     def _amcl_cb(self, msg):
+        self._amcl_msg = msg
         pos = msg.pose.pose.position
-        if self._start_pos is None:
-            self._start_pos = (pos.x, pos.y)
         self._latest_pos = (pos.x, pos.y)
 
     def _rosout_cb(self, msg):
@@ -272,26 +336,52 @@ class GoalStressNode(Node):
         state = self._last_status or '(no status yet)'
         print(heartbeat_line(time.monotonic() - self._t0, state, dist))
 
-    def _publish_goal(self):
-        """Publish the ONE goal, exactly as Foxglove does (frame + optional
-        whole-second stamp truncation). Published once: a second publish
-        would reset the ~10 s TF-buffer countdown and mask the bug."""
+    def _pose_age_sec(self, msg):
+        """Age of an /amcl_pose message stamp in seconds (>= 0)."""
+        now = self.get_clock().now()
+        stamp = Time.from_msg(msg.header.stamp)
+        return max(0.0, (now - stamp).nanoseconds / 1e9)
+
+    def _wait_fresh_amcl(self):
+        """Spin until /amcl_pose arrives with a stamp younger than
+        FRESH_AMCL_SEC. Returns the message, or None after AMCL_WAIT_SEC."""
+        deadline = time.monotonic() + AMCL_WAIT_SEC
+        while rclpy.ok() and time.monotonic() < deadline:
+            rclpy.spin_once(self, timeout_sec=0.05)
+            msg = self._amcl_msg
+            if msg is not None and self._pose_age_sec(msg) < FRESH_AMCL_SEC:
+                return msg
+        return None
+
+    def _publish_goal(self, amcl_msg):
+        """Publish the ONE goal `distance` m ahead of the robot's CURRENT
+        amcl pose (map frame) or ahead of the robot itself (base_link),
+        with an optional whole-second stamp truncation. Published exactly
+        once: a second publish would reset the evidence clock and mask
+        the bug."""
+        p = amcl_msg.pose.pose
+        yaw = yaw_from_quat(p.orientation)
+        spec = goal_from_pose(
+            (p.position.x, p.position.y, yaw), self.distance, self.frame)
         now = self.get_clock().now().to_msg()
         goal = PoseStamped()
-        goal.header.frame_id = self.frame
+        goal.header.frame_id = spec['frame']
         if self.truncate_stamp:
             goal.header.stamp.sec, goal.header.stamp.nanosec = \
                 truncated_stamp(now.sec, now.nanosec)
         else:
             goal.header.stamp = now
-        goal.pose.position.x = self.distance
-        goal.pose.position.y = 0.0
+        goal.pose.position.x = spec['x']
+        goal.pose.position.y = spec['y']
         goal.pose.position.z = 0.0
-        goal.pose.orientation = Quaternion(w=1.0)  # identity
+        goal.pose.orientation = Quaternion(**spec['quat'])
         self._goal_pub.publish(goal)
+        self._goal_published = True
+        self._start_pos = self._latest_pos  # heartbeat distance resets here
         self.get_logger().info(
-            f'published /goal_pose: x=+{self.distance} m in '
-            f'{self.frame}, stamp '
+            f'published /goal_pose: ({spec["x"]:.2f}, {spec["y"]:.2f}) in '
+            f'{spec["frame"]} (robot pose ({p.position.x:.2f}, '
+            f'{p.position.y:.2f}), yaw {yaw:.2f}), stamp '
             f'{goal.header.stamp.sec}.{goal.header.stamp.nanosec:09d} '
             f'({"truncated" if self.truncate_stamp else "fresh"})')
 
@@ -307,8 +397,7 @@ class GoalStressNode(Node):
         self.get_logger().info('bag: ' + ' '.join(bag_command(self.bag_dir)))
         self.get_logger().info(f'rosout filter: {self.rosout_path}')
 
-        # Warm-up: let the bag start writing and the /goal_pose subscription
-        # connect before the single-shot goal publish.
+        # Warm-up: let the bag start writing and subscriptions connect.
         start = self._t0
         while rclpy.ok() and time.monotonic() - start < BAG_WARMUP_SEC:
             rclpy.spin_once(self, timeout_sec=0.05)
@@ -320,7 +409,19 @@ class GoalStressNode(Node):
             self.get_logger().warn(
                 'no subscribers on /goal_pose; the goal may be missed '
                 '(is bt_navigator up?)')
-        self._publish_goal()
+
+        # The goal is `distance` m ahead of the robot's CURRENT pose, so
+        # it must be anchored to a FRESH /amcl_pose — a stale pose would
+        # send the robot to an old location (the immediate-recovery bug
+        # from the first run).
+        amcl_msg = self._wait_fresh_amcl()
+        if amcl_msg is None:
+            self.get_logger().warn(
+                f'no fresh /amcl_pose (stamp < {FRESH_AMCL_SEC} s) within '
+                f'{AMCL_WAIT_SEC} s — REFUSING to publish the goal; '
+                'monitoring continues without a goal')
+        else:
+            self._publish_goal(amcl_msg)
 
         while rclpy.ok() and time.monotonic() - start < self.duration:
             rclpy.spin_once(self, timeout_sec=0.05)
@@ -354,6 +455,7 @@ class GoalStressNode(Node):
             truncated=self.truncate_stamp,
             distance=self.distance,
             duration=self.duration,
+            goal_published=self._goal_published,
             extrapolation_seen=self._extrapolation_seen,
             first_interesting_wall=self._first_interesting_wall,
             final_status=self._last_status or '(no status seen)',
