@@ -28,3 +28,7 @@ firmware/pico_motor_controller/build/
 
 # debug code
 firmware/pico_eai_lidar_driver
+
+# Agentic dev tasks (multi-agent workflow, not tracked)
+AGENT_WORKFLOW/
+worktrees/

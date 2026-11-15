@@ -241,6 +241,8 @@ behavior_server:
     local_footprint_topic: local_costmap/published_footprint
     global_footprint_topic: global_costmap/published_footprint
     cycle_frequency: 10.0
+    max_rotational_vel: 1.0        # rad/s, raise if the robot needs more
+    min_rotational_vel: 0.7        # default; raise to 0.8-1.0 for your robot
     behavior_plugins: ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]
     spin:
       plugin: "nav2_behaviors/Spin"
