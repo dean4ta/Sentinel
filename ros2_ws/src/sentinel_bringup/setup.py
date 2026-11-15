@@ -40,6 +40,7 @@ setup(
             'sensor_check = sentinel_bringup.sensor_check:main',
             'note_taker = sentinel_bringup.note_taker:main',
             'programmer_notation = sentinel_bringup.programmer_notation:main',
+            'nav_waypoint_teach_repeat = sentinel_bringup.nav_waypoint_teach_repeat:main',
         ],
     },
 )
