@@ -124,6 +124,8 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 # Fixed categorical colors: dataviz reference palette slots 1-3
 # (blue/orange/aqua), validated all-pairs on a light surface; the
@@ -131,6 +133,15 @@ import matplotlib.pyplot as plt
 COLOR = {'off': '#2a78d6', 'ff': '#eb6834', 'ffpid': '#1baf7a'}
 TARGET_COLOR = '#52514e'   # target reference: dashed dark gray
 EVENT_COLOR = '#8a8884'    # step-event vlines: recessive gray
+
+# Per-level time-gradient pairs for the XY trajectories: start color ->
+# end color, one hue family per level so the 3-level overlay stays
+# distinguishable while still reading as a time gradient.
+GRADIENT = {
+    'off': ('#2a78d6', '#7fd4e8'),    # blue -> light aqua
+    'ff': ('#eb6834', '#ffd27a'),     # orange -> light amber
+    'ffpid': ('#1baf7a', '#b06ad0'),  # green -> purple
+}
 
 FIG_DPI = 150
 
@@ -168,20 +179,44 @@ def plot_level_wheels(level, wheels, steps, out_png):
     plt.close(fig)
 
 
+def _gradient_xy(ax, odom, level, label):
+    """XY trajectory as a time-gradient line (start color -> end color),
+    with explicit start/end markers. Returns the LineCollection so the
+    caller can attach a colorbar."""
+    t = _rel(odom['t'], odom['t'][0])
+    points = np.column_stack([odom['x'], odom['y']]).reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    cmap = LinearSegmentedColormap.from_list(f'grad_{level}', GRADIENT[level])
+    norm = Normalize(vmin=t.min(), vmax=max(t.max(), t.min() + 1e-9))
+    lc = LineCollection(segments, cmap=cmap, norm=norm, linewidth=2.0,
+                        label=label)
+    lc.set_array(t)
+    ax.add_collection(lc)
+    start_c, end_c = GRADIENT[level]
+    ax.scatter(odom['x'][0], odom['y'][0], marker='o', s=70,
+               facecolor=start_c, edgecolor='black', linewidth=0.8,
+               zorder=5)
+    ax.scatter(odom['x'][-1], odom['y'][-1], marker='x', s=70,
+               color=end_c, linewidth=2.5, zorder=5)
+    return lc, norm, cmap
+
+
 def plot_level_odom(level, odom, source_label, out_png):
-    """XY trajectory + x/y vs time subplots for one level."""
+    """XY trajectory (time-gradient) + x/y vs time subplots for one level."""
     t0 = odom['t'][0]
     t = _rel(odom['t'], t0)
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
     fig.suptitle(
         f'Odometry -- {LEVEL_LABELS[level]}\nsource: {source_label}',
         fontsize=12)
-    axes[0].plot(odom['x'], odom['y'], color=COLOR[level], linewidth=2.0)
-    axes[0].set_title('XY trajectory')
+    lc, norm, cmap = _gradient_xy(axes[0], odom, level, None)
+    axes[0].set_title('XY trajectory (color = time)')
     axes[0].set_xlabel('x (m)')
     axes[0].set_ylabel('y (m)')
     axes[0].set_aspect('equal', adjustable='datalim')
     axes[0].grid(alpha=0.3, linewidth=0.5)
+    cbar = fig.colorbar(lc, ax=axes[0], pad=0.02)
+    cbar.set_label('time (s)')
     axes[1].plot(t, odom['x'], color=COLOR[level], linewidth=2.0)
     axes[1].set_title('x vs time')
     axes[1].set_xlabel('time (s)')
@@ -232,21 +267,37 @@ def plot_combined_wheels(level_data, out_png):
 
 
 def plot_combined_odom(level_data, out_png):
-    """XY trajectory, three controller levels overlaid."""
+    """XY trajectory, three controller levels overlaid. Each trajectory
+    carries its own hue-family time gradient (start -> end) plus o/x
+    start/end markers; a legend entry per level keeps the three
+    gradients separable without one shared colorbar (three per-trace
+    colorbars would fight)."""
     fig, ax = plt.subplots(figsize=(7.5, 6))
+    plotted = []
     for level in LEVELS:
         if level not in level_data or level_data[level]['odom'] is None:
             continue
         odom = level_data[level]['odom']
-        ax.plot(odom['x'], odom['y'], color=COLOR[level], linewidth=2.0,
-                label=f"{LEVEL_LABELS[level]} -- "
-                      f"{level_data[level]['odom_csv'].stem}")
-    ax.set_title('Odometry XY: three controller levels')
+        lc, _norm, _cmap = _gradient_xy(
+            ax, odom, level,
+            label=f"{LEVEL_LABELS[level]} -- "
+                  f"{level_data[level]['odom_csv'].stem}")
+        plotted.append((level, lc))
+    ax.set_title('Odometry XY: three controller levels\n'
+                 '(color = time along each trajectory: start -> end)')
     ax.set_xlabel('x (m)')
     ax.set_ylabel('y (m)')
     ax.set_aspect('equal', adjustable='datalim')
     ax.grid(alpha=0.3, linewidth=0.5)
-    ax.legend(loc='best', fontsize=9)
+    handles = [plt.Line2D([0], [0], color=GRADIENT[lv][0], linewidth=2.0,
+                          label=f'{LEVEL_LABELS[lv]}')
+               for lv, _lc in plotted]
+    start_h = plt.Line2D([0], [0], marker='o', color='none',
+                         markerfacecolor='white', markeredgecolor='black',
+                         markersize=8, label='start')
+    end_h = plt.Line2D([0], [0], marker='x', color='black',
+                       markersize=9, label='end')
+    ax.legend(handles=handles + [start_h, end_h], loc='best', fontsize=9)
     fig.tight_layout()
     fig.savefig(out_png, dpi=FIG_DPI)
     plt.close(fig)
