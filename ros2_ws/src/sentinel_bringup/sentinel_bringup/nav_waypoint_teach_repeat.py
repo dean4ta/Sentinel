@@ -617,6 +617,11 @@ class NavWaypointNode(Node):
         if handle is not None:
             handle.cancel_goal_async()
             self._in_flight = None
+        # Mark every pending send abandoned BEFORE the flush spin: a goal
+        # accepted during the flush must hit the _cancel_if_late path, not
+        # the normal one — teardown leaves nobody to watch it.
+        for _, tracked in self._pending_sends:
+            tracked['abandoned'] = True
         if handle is None and not self._pending_sends:
             return
         end = self.get_clock().now() + Duration(seconds=2.0)
