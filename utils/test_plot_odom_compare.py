@@ -98,18 +98,13 @@ def write_bag(path, pts):
                 odom_msg(t_ns, x, y), ODOM_MSGTYPE))
 
 
-def test_gradient():
-    """GRADIENT: four entries, distinct start colors, distinct end
-    colors, start != end within each pair."""
-    assert len(poc.GRADIENT) == 4, poc.GRADIENT
-    pairs = list(poc.GRADIENT.values())
-    starts = [p[0] for p in pairs]
-    ends = [p[1] for p in pairs]
-    assert len(set(starts)) == 4, f'duplicate start colors: {starts}'
-    assert len(set(ends)) == 4, f'duplicate end colors: {ends}'
-    for start_c, end_c in pairs:
-        assert start_c != end_c, (start_c, end_c)
-    print('ok: GRADIENT has 4 entries with distinct start/end colors')
+def test_colors():
+    """COLOR: four entries, all distinct (one solid categorical color
+    per variant, no gradient pairs)."""
+    assert len(poc.COLOR) == 4, poc.COLOR
+    values = list(poc.COLOR.values())
+    assert len(set(values)) == 4, f'duplicate colors: {values}'
+    print('ok: COLOR has 4 entries with distinct solid colors')
 
 
 def test_py310_grammar():
@@ -153,7 +148,7 @@ def test_plot():
 
 
 if __name__ == '__main__':
-    test_gradient()
+    test_colors()
     test_py310_grammar()
     test_plot()
     print('selftest passed')
