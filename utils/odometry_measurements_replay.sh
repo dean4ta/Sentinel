@@ -6,7 +6,10 @@
 #   pass 2: slip-compensated odom  -> /pass2/wheel_odom
 #   pass 3: raw wheel odom + EKF   -> /pass3/wheel_imu_odom_filtered
 #   pass 4: slip-compensated + EKF -> /pass4/wheel_imu_odom_filtered
-# Then pulls the four result bags back and plots them overlaid.
+# Then pulls the four result bags back and plots them overlaid; the
+# figure lands in
+#   ~/UF/EEL4924_senior_design/final_submission/02_wheel_odometry/odometry_comparison.png
+# (plot_odom_compare.py default; pass -o to plot manually elsewhere).
 # Wall time = one bag duration (vs 4x for sequential passes); CPU at
 # rate 1.0 fits the Orin Nano's 6 cores.
 #
@@ -132,6 +135,5 @@ rm -rf data/replay
 scp -r sentinel1@sentinel1-desktop.tail919736.ts.net:/home/sentinel1/dean/Sentinel/data/replay \
   ~/UF/EEL4924_senior_design/project/data && \
 utils/.venv/bin/python3 utils/plot_odom_compare.py \
-  data/replay/raw_odom data/replay/slip_odom data/replay/raw_ekf data/replay/slip_ekf \
-  -o data/replay/compare.png && \
-open data/replay/compare.png
+  data/replay/raw_odom data/replay/slip_odom data/replay/raw_ekf data/replay/slip_ekf && \
+open ~/UF/EEL4924_senior_design/final_submission/02_wheel_odometry/odometry_comparison.png
