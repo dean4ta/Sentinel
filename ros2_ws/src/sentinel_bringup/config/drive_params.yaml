@@ -82,13 +82,13 @@ wheel_slip_detector:
     # direction of travel. Asymmetric: only overspeed is suspicious,
     # slower wheels stay trusted.
     wheel_circumference_m: 0.44    # rpm -> m/s (nominal 140 mm mecanum)
-    residual_threshold_mps: 0.04   # iter1: 0.05 -> 0.04 (flag sooner)
-    residual_scale_mps: 0.10       # iter1: 0.15 -> 0.10 (full suspicion earlier)
+    residual_threshold_mps: 0.03   # iter2: 0.04 -> 0.03 (flag even sooner)
+    residual_scale_mps: 0.06       # iter2: 0.10 -> 0.06 (full suspicion earlier still)
     tracking_scale_mps: 0.30       # tracking-error advantage over peer median
                                    # that fully endorses suspicion (m/s)
-    peer_margin_mps: 0.02          # iter1: 0.03 -> 0.02 (easier to beat peers)
-    alpha_suspicious: 0.35         # iter1: 0.20 -> 0.35 (confidence decays faster)
-    alpha_recover: 0.02            # iter1: 0.05 -> 0.02 (slower recovery, hysteresis)
+    peer_margin_mps: 0.01          # iter2: 0.02 -> 0.01 (almost any excess beats peers)
+    alpha_suspicious: 0.50         # iter2: 0.35 -> 0.50 (very fast confidence decay)
+    alpha_recover: 0.01            # iter2: 0.02 -> 0.01 (very slow recovery, strong hysteresis)
 
 wheel_odometry:
   ros__parameters:
@@ -99,11 +99,11 @@ wheel_odometry:
                                    # cmd_vel_serial's ik_wheelbase_m (0.35
                                    # right now) or yaw rates disagree ~3%.
                                    # TODO: measure on the robot, set both.
-    weight_floor: 0.02             # iter1: 0.05 -> 0.02 (distrusted wheel nearly dropped)
+    weight_floor: 0.0              # iter2: 0.02 -> 0.0 (distrusted wheel fully dropped)
     ridge: 0.05                    # prior pull on unobservable directions
     wheel_noise_mps: 0.1            # per-wheel speed noise, feeds covariance
     degraded_min_eig: 0.5          # min eig of A^T W A below this = degraded
-    confidence_timeout_s: 0.15     # iter1: 0.2 -> 0.15 (fresher confidences required)
+    confidence_timeout_s: 0.10     # iter2: 0.15 -> 0.10 (only very fresh confidences)
     max_dt_s: 0.2                  # longer gaps skip integration
     odom_frame: odom
     base_frame: base_link
