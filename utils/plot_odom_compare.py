@@ -30,6 +30,15 @@ import matplotlib.pyplot as plt
 DEFAULT_OUT = ('/Users/dean/UF/EEL4924_senior_design/final_submission/'
                '02_wheel_odometry/odometry_comparison.png')
 
+# Measured rectangle corners (user-measured feet -> meters):
+# (0,0), (29 ft, 0), (29 ft, 15 ft), (0, 15 ft).
+RECT_CORNERS_M = (
+    (0.0, 0.0),
+    (29 * 0.3048, 0.0),
+    (29 * 0.3048, 15 * 0.3048),
+    (0.0, 15 * 0.3048),
+)
+
 # One solid categorical color per variant, keyed by the replay bag dir
 # names: dataviz categorical slots (blue/orange/aqua) plus red.
 # Identity is carried by the legend + start/end markers, never color
@@ -81,15 +90,26 @@ def plot_compare(bags, out_png):
                  '(raw x slip, with and without EKF)')
     ax.grid(True, alpha=0.3)
 
+    # Measured rectangle reference: dashed outline + corner dots.
+    rect_x = [p[0] for p in RECT_CORNERS_M] + [RECT_CORNERS_M[0][0]]
+    rect_y = [p[1] for p in RECT_CORNERS_M] + [RECT_CORNERS_M[0][1]]
+    ax.plot(rect_x, rect_y, color='#52514e', linestyle='--',
+            linewidth=1.2, label='measured rectangle')
+    ax.scatter(rect_x[:-1], rect_y[:-1], marker='.', s=40,
+               color='#52514e', zorder=4)
+
     handles = [plt.Line2D([0], [0], color=color, linewidth=2.0,
                           label=label)
                for label, color in legend_info]
+    rect_h = plt.Line2D([0], [0], color='#52514e', linestyle='--',
+                        linewidth=1.2, label='measured rectangle')
     start_h = plt.Line2D([0], [0], marker='o', color='none',
                          markerfacecolor='white', markeredgecolor='black',
                          markersize=8, label='start')
     end_h = plt.Line2D([0], [0], marker='x', color='black',
                        markersize=9, label='end')
-    ax.legend(handles=handles + [start_h, end_h], loc='best', fontsize=9)
+    ax.legend(handles=handles + [rect_h, start_h, end_h],
+              loc='best', fontsize=9)
     fig.tight_layout()
 
     out = Path(out_png)
