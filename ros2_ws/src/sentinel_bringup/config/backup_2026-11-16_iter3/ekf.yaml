@@ -1,0 +1,26 @@
+# EKF fusion of wheel odometry + D435i gyro (robot_localization ekf_node).
+#
+# Fuses wheel velocities (not pose - no double integration) and gyro yaw
+# rate only. Mecanum base: vy is meaningful, so both vx and vy are on.
+# No accel: localization needs only yaw rate. Raw gyro topic (united
+# /imu sync path is flaky with the RSUSB build, don't use it).
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    two_d_mode: true
+    publish_tf: true
+    world_frame: odom
+    odom_frame: odom
+    base_link_frame: base_link
+
+    odom0: /wheel_odom
+    #              x      y      z      roll   pitch  yaw    vx     vy     vz     vroll  vpitch vyaw   ax     ay     az
+    odom0_config: [false, false, false, false, false, false, true,  true,  false, false, false, false, false, false, false]
+    odom0_queue_size: 10
+
+    imu0: /camera/realsense2_camera/gyro/sample
+    #             x      y      z      roll   pitch  yaw    vx     vy     vz     vroll  vpitch vyaw   ax     ay     az
+    imu0_config: [false, false, false, false, false, false, false, false, false, false, false, true,  false, false, false]
+    imu0_queue_size: 10
+    # Tuning 2026-11-16 iter2: gyro is the ONLY yaw-rate source
+    # (odom0_config vyaw switched off) — maximum trust in IMU yaw rate.
